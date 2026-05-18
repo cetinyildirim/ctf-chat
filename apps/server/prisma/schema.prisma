@@ -1,0 +1,529 @@
+// SYDT Prisma schema
+// SQLite for dev. Swap provider to "postgresql" (and DATABASE_URL) for prod;
+// enums are modeled as strings to keep portability without migrations churn.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  displayName  String
+  passwordHash String
+  role         String   @default("TEAM_MEMBER")
+  status       String   @default("OFFLINE")
+  avatarUrl    String?
+  bio          String?
+  lastSeenAt   DateTime?
+  isBanned     Boolean  @default(false)
+  mutedUntil   DateTime?
+  mutedSince   DateTime?
+  preferredLocale String @default("tr")
+  preferredTheme  String @default("dark")
+  notifyDefault   String @default("ALL")
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  teamId       String?
+  team         Team?    @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+
+  captainOf    Team?    @relation("TeamCaptain")
+
+  friendshipsAsRequester Friendship[] @relation("FriendshipRequester")
+  friendshipsAsAddressee Friendship[] @relation("FriendshipAddressee")
+  dmChannels            ChannelDmParticipant[]
+  channelNotifyPrefs    UserChannelPreference[]
+
+  messages     Message[]
+  reactions    Reaction[]
+  refreshTokens RefreshToken[]
+
+  pinnedBy     Pin[]
+
+  openedTickets   Ticket[] @relation("TicketOpenedBy")
+  claimedTickets  Ticket[] @relation("TicketClaimedBy")
+  ticketEvents    TicketEvent[]
+
+  openedIncidents   Incident[] @relation("IncidentOpenedBy")
+  assignedIncidents Incident[] @relation("IncidentAssignedTo")
+
+  announcements Announcement[]
+  solves        Solve[]
+  hintUnlocks   HintUnlock[]
+  auditLogs     AuditLog[]
+  authoredChallenges Challenge[] @relation("ChallengeAuthor")
+  surveyResponses SurveyResponse[]
+  surveysCreated  Survey[] @relation("SurveyCreator")
+  broadcastsAuthored AdminBroadcast[] @relation("BroadcastAuthor")
+  reportsMade      UserReport[] @relation("ReportsMade")
+  reportsReceived  UserReport[] @relation("ReportsReceived")
+  reportsReviewed  UserReport[] @relation("ReportsReviewed")
+
+  @@index([role])
+  @@index([mutedUntil])
+  @@index([teamId])
+}
+
+model UserReport {
+  id           String    @id @default(cuid())
+  reporterId   String
+  reporter     User      @relation("ReportsMade", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedId   String
+  reported     User      @relation("ReportsReceived", fields: [reportedId], references: [id], onDelete: Cascade)
+  reason       String
+  details      String?
+  contextType  String?
+  contextId    String?
+  status       String    @default("OPEN")
+  createdAt    DateTime  @default(now())
+  reviewedAt   DateTime?
+  reviewedById String?
+  reviewedBy   User?     @relation("ReportsReviewed", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([reportedId])
+  @@index([reporterId])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  tagline   String?
+  color     String   @default("#22d3ee")
+  logoUrl   String?
+  inviteCode String  @unique @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  captainId String?  @unique
+  captain   User?    @relation("TeamCaptain", fields: [captainId], references: [id], onDelete: SetNull)
+
+  members   User[]   @relation("TeamMembers")
+  solves    Solve[]
+  tickets   Ticket[]
+  privateChannels Channel[]
+  bloodChallenges Challenge[] @relation("FirstBloodTeam")
+  hintUnlocks HintUnlock[]
+}
+
+model Friendship {
+  id          String   @id @default(cuid())
+  requesterId String
+  addresseeId String
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status])
+  @@index([requesterId, status])
+}
+
+model ChannelDmParticipant {
+  channelId String
+  userId    String
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, userId])
+  @@index([userId])
+}
+
+model UserChannelPreference {
+  userId    String
+  channelId String
+  notifyMode String @default("DEFAULT")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@id([userId, channelId])
+}
+
+model Category {
+  id       String   @id @default(cuid())
+  name     String
+  position Int      @default(0)
+  staffOnly Boolean @default(false)
+  logoUrl  String?
+  channels Channel[]
+
+  @@index([position])
+}
+
+model Channel {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  topic       String?
+  type        String   @default("GLOBAL_CHAT")
+  iconKey     String?
+  position    Int      @default(0)
+  isPrivate   Boolean  @default(false)
+  isLocked    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  challengeId String?  @unique
+  challenge   Challenge? @relation(fields: [challengeId], references: [id], onDelete: SetNull)
+
+  logoUrl     String?
+
+  teamId      String?
+  team        Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  messages    Message[]
+  pins        Pin[]
+  tickets     Ticket[]
+  incidents   Incident[]
+
+  dmParticipants    ChannelDmParticipant[]
+  notifyPreferences UserChannelPreference[]
+
+  @@index([categoryId, position])
+  @@index([type])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  channelId String
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  content   String
+  mentionsJson String @default("[]")
+  replyToId String?
+  replyTo   Message? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   Message[] @relation("MessageReplies")
+  editedAt  DateTime?
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+
+  reactions   Reaction[]
+  attachments Attachment[]
+  pin         Pin?
+
+  @@index([channelId, createdAt])
+  @@index([authorId])
+}
+
+model Reaction {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  messageId String?
+  message   Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  name      String
+  mimeType  String
+  size      Int
+  url       String
+  createdAt DateTime @default(now())
+}
+
+model Pin {
+  id          String   @id @default(cuid())
+  channelId   String
+  channel     Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  messageId   String   @unique
+  message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  pinnedById  String
+  pinnedBy    User     @relation(fields: [pinnedById], references: [id], onDelete: Cascade)
+  pinnedAt    DateTime @default(now())
+}
+
+model Challenge {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String
+  category    String
+  difficulty  String
+  points      Int      @default(100)
+  tagsJson    String   @default("[]")
+  isReleased  Boolean  @default(true)
+  flag        String
+  authorId    String?
+  author      User?    @relation("ChallengeAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  firstBloodTeamId String?
+  firstBloodTeam   Team?  @relation("FirstBloodTeam", fields: [firstBloodTeamId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  discussionChannel Channel?
+  solves   Solve[]
+  hints    Hint[]
+  tickets  Ticket[]
+
+  @@index([category])
+  @@index([difficulty])
+}
+
+model Hint {
+  id          String   @id @default(cuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  order       Int      @default(0)
+  text        String
+  cost        Int      @default(0)
+
+  unlocks     HintUnlock[]
+
+  @@unique([challengeId, order])
+}
+
+model HintUnlock {
+  id        String   @id @default(cuid())
+  hintId    String
+  hint      Hint     @relation(fields: [hintId], references: [id], onDelete: Cascade)
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([hintId, teamId])
+}
+
+model Solve {
+  id          String   @id @default(cuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  teamId      String
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstBlood  Boolean  @default(false)
+  solvedAt    DateTime @default(now())
+
+  @@unique([challengeId, teamId])
+  @@index([teamId])
+  @@index([solvedAt])
+}
+
+model Ticket {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  title       String
+  body        String
+  status      String   @default("OPEN")
+  severity    String   @default("MEDIUM")
+
+  openedById  String
+  openedBy    User     @relation("TicketOpenedBy", fields: [openedById], references: [id], onDelete: Cascade)
+
+  claimedById String?
+  claimedBy   User?    @relation("TicketClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+
+  teamId      String?
+  team        Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  challengeId String?
+  challenge   Challenge? @relation(fields: [challengeId], references: [id], onDelete: SetNull)
+
+  channelId   String?
+  channel     Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  resolvedAt  DateTime?
+
+  events      TicketEvent[]
+
+  @@index([status])
+  @@index([severity])
+  @@index([teamId])
+}
+
+model TicketEvent {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  type      String
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  body      String?
+  metaJson  String   @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+model Incident {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  severity    String   @default("MEDIUM")
+  status      String   @default("OPEN")
+
+  openedById  String
+  openedBy    User     @relation("IncidentOpenedBy", fields: [openedById], references: [id], onDelete: Cascade)
+
+  assignedToId String?
+  assignedTo   User?   @relation("IncidentAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  channelId   String?
+  channel     Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+}
+
+model Announcement {
+  id          String   @id @default(cuid())
+  title       String
+  body        String
+  severity    String   @default("INFO")
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  scheduledFor DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model AppConfig {
+  id               String   @id @default("default")
+  uploadMaxMb      Int      @default(100)
+  platformTitle    String   @default("SYDT")
+  platformTagline  String   @default("CTF Operations Console")
+  workspaceLabel   String   @default("Komuta")
+  workspaceTitle   String   @default("SYDT Chat")
+  updatedAt        DateTime @updatedAt
+}
+
+model AdminBroadcast {
+  id              String   @id @default(cuid())
+  kind            String
+  title           String
+  body            String
+  recipientCount  Int      @default(0)
+  createdById     String?
+  createdBy       User?    @relation("BroadcastAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([kind])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  target    String?
+  metaJson  String   @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+}
+
+model Survey {
+  id                    String   @id @default(cuid())
+  title                 String
+  description           String?
+  requireBeforeContinue Boolean  @default(false)
+  isActive              Boolean  @default(true)
+  createdById           String?
+  createdBy             User?    @relation("SurveyCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  questions SurveyQuestion[]
+  responses SurveyResponse[]
+}
+
+model SurveyQuestion {
+  id       String @id @default(cuid())
+  surveyId String
+  survey   Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  text     String
+  type     String @default("SINGLE")
+  position Int    @default(0)
+  required Boolean @default(true)
+
+  options SurveyOption[]
+  answers SurveyAnswer[]
+
+  @@index([surveyId, position])
+}
+
+model SurveyOption {
+  id         String @id @default(cuid())
+  questionId String
+  question   SurveyQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  position   Int    @default(0)
+
+  answers SurveyAnswer[]
+
+  @@index([questionId, position])
+}
+
+model SurveyResponse {
+  id        String   @id @default(cuid())
+  surveyId  String
+  survey    Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  answers SurveyAnswer[]
+
+  @@unique([surveyId, userId])
+  @@index([surveyId])
+}
+
+model SurveyAnswer {
+  id         String  @id @default(cuid())
+  responseId String
+  response   SurveyResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  questionId String
+  question   SurveyQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  optionId   String?
+  option     SurveyOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  textValue  String?
+
+  @@index([responseId])
+  @@index([questionId])
+}

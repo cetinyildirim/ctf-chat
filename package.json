@@ -1,0 +1,27 @@
+{
+  "name": "sydt-chat",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SYDT — CTF operations chat platform (Next.js + Express + Socket.IO + Prisma)",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c cyan,magenta \"pnpm --filter @sydt/server dev\" \"pnpm --filter @sydt/web dev\"",
+    "build": "pnpm --filter @sydt/shared build && pnpm --filter @sydt/server build && pnpm --filter @sydt/web build",
+    "start:server": "pnpm --filter @sydt/server start",
+    "start:web": "pnpm --filter @sydt/web start",
+    "db:generate": "pnpm --filter @sydt/server db:generate",
+    "db:push": "pnpm --filter @sydt/server db:push",
+    "seed": "pnpm --filter @sydt/server seed",
+    "lint": "pnpm -r --parallel lint",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  }
+}

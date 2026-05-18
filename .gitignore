@@ -1,0 +1,28 @@
+node_modules/
+.next/
+dist/
+build/
+out/
+.env
+.env.local
+.env.*.local
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+.cache/
+.turbo/
+coverage/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.template
+.idea/
+*.tsbuildinfo
+.next-build/
+# Prisma
+apps/server/prisma/*.db
+apps/server/prisma/*.db-journal
+apps/server/dev.db
+apps/server/dev.db-journal
+# Uploads
+apps/server/uploads/

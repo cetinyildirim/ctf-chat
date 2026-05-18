@@ -1,0 +1,235 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: 218 40% 5%;
+    --bg-elev: 220 30% 8%;
+    --bg-deep: 220 50% 3%;
+    --panel: 220 20% 14%;
+    --border: 220 14% 22%;
+    --ring: 189 92% 56%;
+    --fg: 210 20% 96%;
+    --fg-subtle: 215 16% 72%;
+    --muted: 220 14% 18%;
+    --muted-fg: 215 14% 58%;
+    --accent-cyan: 189 92% 56%;
+    --accent-violet: 258 90% 76%;
+    --accent-emerald: 156 64% 53%;
+    --accent-rose: 351 95% 71%;
+    --accent-amber: 41 96% 60%;
+    --radius: 12px;
+
+    --font-sans: 'Segoe UI', 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Mono', ui-monospace;
+
+    color-scheme: dark;
+  }
+
+  html.light {
+    --bg: 210 32% 98%;
+    --bg-elev: 210 26% 96%;
+    --bg-deep: 210 38% 92%;
+    --panel: 210 22% 94%;
+    --border: 220 18% 72%;
+    --ring: 189 70% 38%;
+    --fg: 220 45% 8%;
+    --fg-subtle: 220 14% 26%;
+    --muted: 220 16% 88%;
+    --muted-fg: 220 12% 36%;
+    color-scheme: light;
+  }
+
+  html.light .glass {
+    background: linear-gradient(180deg, hsla(210, 30%, 100%, 0.92), hsla(210, 24%, 96%, 0.95));
+    border: 1px solid hsla(220, 18%, 70%, 0.55);
+    box-shadow:
+      inset 0 1px 0 hsla(0, 0%, 100%, 0.8),
+      0 8px 24px -12px hsla(220, 30%, 20%, 0.12);
+  }
+
+  html.light .glass-strong {
+    background: linear-gradient(180deg, hsla(210, 28%, 99%, 0.98), hsla(210, 22%, 95%, 0.98));
+    border: 1px solid hsla(220, 18%, 68%, 0.6);
+  }
+
+  html.light .border-white\/5,
+  html.light .border-white\/8,
+  html.light .border-white\/10,
+  html.light .border-white\/15 {
+    border-color: hsla(220, 18%, 68%, 0.65) !important;
+  }
+
+  html.light .bg-white\/\[0\.02\],
+  html.light .bg-white\/\[0\.03\],
+  html.light .bg-white\/\[0\.04\] {
+    background-color: hsla(220, 20%, 50%, 0.06) !important;
+  }
+
+  html.light .text-muted-fg {
+    color: hsl(var(--muted-fg));
+  }
+
+  html.light code,
+  html.light .font-mono {
+    color: hsl(220 40% 18%);
+  }
+
+  html.light .admin-page select,
+  html.light .admin-page input,
+  html.light .admin-page textarea {
+    border-color: hsl(var(--border));
+    background: hsl(var(--bg-elev));
+    color: hsl(var(--fg));
+  }
+
+  html.light body {
+    background:
+      radial-gradient(1200px 600px at 12% -10%, hsla(189, 90%, 40%, 0.09), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, hsla(260, 80%, 50%, 0.07), transparent 60%),
+      linear-gradient(180deg, hsl(var(--bg-deep)) 0%, hsl(var(--bg)) 65%);
+    background-attachment: fixed;
+  }
+
+  html, body, #__next {
+    height: 100%;
+  }
+
+  html {
+    background: hsl(var(--bg));
+    color: hsl(var(--fg));
+  }
+
+  body {
+    @apply font-sans antialiased text-fg;
+    background:
+      radial-gradient(1200px 600px at 12% -10%, hsla(189, 90%, 50%, 0.10), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, hsla(260, 80%, 70%, 0.08), transparent 60%),
+      linear-gradient(180deg, hsl(var(--bg-deep)) 0%, hsl(var(--bg)) 60%);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background: hsla(189, 92%, 56%, 0.3);
+    color: hsl(var(--fg));
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsla(220, 14%, 30%, 0.6);
+    border-radius: 10px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsla(220, 14%, 40%, 0.8);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+}
+
+@layer components {
+  .glass {
+    background: linear-gradient(180deg, hsla(220, 20%, 16%, 0.55), hsla(220, 30%, 10%, 0.65));
+    border: 1px solid hsla(0, 0%, 100%, 0.06);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    box-shadow:
+      inset 0 1px 0 hsla(0, 0%, 100%, 0.04),
+      0 12px 32px -18px hsla(0, 0%, 0%, 0.6);
+  }
+
+  .glass-strong {
+    background: linear-gradient(180deg, hsla(220, 25%, 18%, 0.85), hsla(220, 30%, 10%, 0.85));
+    border: 1px solid hsla(0, 0%, 100%, 0.08);
+    backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+  }
+
+  .text-gradient-cyan {
+    background: linear-gradient(135deg, hsl(189, 92%, 60%) 0%, hsl(258, 90%, 76%) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .neon-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsla(189, 92%, 56%, 0.5), transparent);
+  }
+
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      hsla(220, 14%, 22%, 0.4) 25%,
+      hsla(220, 14%, 28%, 0.6) 50%,
+      hsla(220, 14%, 22%, 0.4) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+
+  .chat-markdown p {
+    @apply leading-relaxed;
+  }
+  .chat-markdown p + p {
+    @apply mt-2;
+  }
+  .chat-markdown a {
+    @apply text-accent-cyan underline-offset-2 hover:underline;
+  }
+  .chat-markdown ul {
+    @apply list-disc pl-5 space-y-1;
+  }
+  .chat-markdown ol {
+    @apply list-decimal pl-5 space-y-1;
+  }
+  .chat-markdown blockquote {
+    @apply border-l-2 border-accent-cyan/40 pl-3 text-fg-subtle;
+  }
+  .chat-markdown code:not(pre code) {
+    @apply rounded bg-bg-elev/80 px-1.5 py-0.5 font-mono text-[0.85em] text-accent-cyan;
+  }
+  .chat-markdown pre {
+    @apply my-2 overflow-x-auto rounded-lg border border-border/60 bg-bg-deep/80 p-3 font-mono text-[0.85em] leading-relaxed;
+  }
+}
+
+@layer utilities {
+  .admin-page {
+    max-width: none;
+    width: 100%;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scanlines::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.012) 0,
+      rgba(255, 255, 255, 0.012) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+}
