@@ -11,10 +11,11 @@ const IPV4 = /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]
 const URL_RE = /\bhttps?:\/\/[^\s<>"`]+/g;
 const HASH_RE = /\b(?:[a-fA-F0-9]{32}|[a-fA-F0-9]{40}|[a-fA-F0-9]{64})\b/g;
 const CVE_RE = /\bCVE-\d{4}-\d{4,7}\b/g;
+const MENTION_RE = /@[a-z0-9_.-]{3,24}/gi;
 const DOMAIN_RE = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com|net|org|io|gov|edu|local|dev|sh|so|me|co|app|xyz|info|ai|cloud)\b/gi;
 
 interface Token {
-  type: 'text' | 'ip' | 'url' | 'hash' | 'cve' | 'domain';
+  type: 'text' | 'ip' | 'url' | 'hash' | 'cve' | 'domain' | 'mention';
   value: string;
 }
 
@@ -31,6 +32,7 @@ function tokenize(text: string): Token[] {
     }
   };
 
+  collect(MENTION_RE, 'mention');
   collect(URL_RE, 'url');
   collect(IPV4, 'ip');
   collect(HASH_RE, 'hash');
@@ -65,6 +67,7 @@ const classByType: Record<Token['type'], string> = {
   url: 'text-accent-cyan underline underline-offset-2 hover:text-accent-violet',
   cve: 'rounded bg-accent-rose/10 px-1 py-px font-mono text-[0.85em] text-accent-rose border border-accent-rose/20',
   domain: 'rounded bg-accent-emerald/10 px-1 py-px font-mono text-[0.85em] text-accent-emerald border border-accent-emerald/20',
+  mention: 'rounded bg-accent-cyan/10 px-0.5 font-medium text-accent-cyan',
 };
 
 const titleByType: Record<Token['type'], string | undefined> = {
@@ -74,6 +77,7 @@ const titleByType: Record<Token['type'], string | undefined> = {
   url: 'URL',
   cve: 'CVE identifier',
   domain: 'Domain',
+  mention: 'Mention',
 };
 
 export function highlightText(text: string, keyPrefix = 'h'): React.ReactNode[] {

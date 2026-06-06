@@ -2,10 +2,11 @@
 
 import * as React from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query/client';
+import { useI18n } from '@/components/providers/LocaleProvider';
 import type { Message } from '@sydt/shared';
 import { messagesApi } from '@/lib/api/endpoints';
-import { queryKeys } from '@/lib/query/client';
 import { MessageItem } from './MessageItem';
 import { TypingIndicator } from './TypingIndicator';
 import { SkeletonRows } from '@/components/common/Skeleton';
@@ -16,8 +17,13 @@ import { unwrapApiError } from '@/lib/api/axios';
 
 interface Props {
   channelId: string;
+  serverId?: string;
   onReply: (msg: Message) => void;
 }
+
+export type MessageListHandle = {
+  scrollToMessage: (messageId: string) => void;
+};
 
 function shouldGroup(prev: Message | undefined, curr: Message): boolean {
   if (!prev) return false;
@@ -26,9 +32,15 @@ function shouldGroup(prev: Message | undefined, curr: Message): boolean {
   return delta < 5 * 60_000;
 }
 
-export function MessageList({ channelId, onReply }: Props) {
+export const MessageList = React.forwardRef<MessageListHandle, Props>(function MessageList(
+  { channelId, serverId, onReply },
+  forwardedRef,
+) {
+  const { t } = useI18n();
+  const qc = useQueryClient();
   const ref = React.useRef<VirtuosoHandle | null>(null);
   const atBottomRef = React.useRef(true);
+  const [highlightId, setHighlightId] = React.useState<string | null>(null);
 
   const {
     data,
@@ -60,6 +72,30 @@ export function MessageList({ channelId, onReply }: Props) {
     }
     return out;
   }, [data]);
+
+  const scrollToMessage = React.useCallback(
+    (messageId: string) => {
+      const index = messages.findIndex((m) => m.id === messageId);
+      if (index < 0) {
+        toast.error(t.messageJumpNotFound);
+        return;
+      }
+      ref.current?.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
+      setHighlightId(messageId);
+      window.setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 2500);
+    },
+    [messages, t],
+  );
+
+  React.useImperativeHandle(forwardedRef, () => ({ scrollToMessage }), [scrollToMessage]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || messages.length === 0) return;
+    const match = window.location.hash.match(/^#message-(.+)$/);
+    if (!match?.[1]) return;
+    const id = window.setTimeout(() => scrollToMessage(match[1]!), 400);
+    return () => window.clearTimeout(id);
+  }, [channelId, messages.length, scrollToMessage]);
 
   const lastIdRef = React.useRef<string | null>(null);
   React.useEffect(() => {
@@ -102,7 +138,22 @@ export function MessageList({ channelId, onReply }: Props) {
   const handlePin = async (id: string) => {
     try {
       await messagesApi.pin(id);
-      toast.success('Pinned.');
+      void qc.invalidateQueries({ queryKey: queryKeys.pins(channelId) });
+      if (serverId) void qc.invalidateQueries({ queryKey: queryKeys.serverPinsByCategory(serverId) });
+      qc.setQueryData(
+        queryKeys.messages(channelId),
+        (old: { pages: { messages: Message[] }[]; pageParams: unknown[] } | undefined) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              messages: page.messages.map((m) => (m.id === id ? { ...m, pinned: true } : m)),
+            })),
+          };
+        },
+      );
+      toast.success(t.messagePinnedToast);
     } catch (err) {
       toast.error(unwrapApiError(err).message);
     }
@@ -160,6 +211,7 @@ export function MessageList({ channelId, onReply }: Props) {
           <MessageItem
             message={message}
             grouped={shouldGroup(messages[index - 1], message)}
+            highlighted={highlightId === message.id}
             onReact={(e) => handleReact(message.id, e)}
             onEdit={handleEdit}
             onDelete={handleDelete}
@@ -171,4 +223,4 @@ export function MessageList({ channelId, onReply }: Props) {
       <TypingIndicator channelId={channelId} />
     </div>
   );
-}
+});

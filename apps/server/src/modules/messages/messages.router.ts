@@ -5,15 +5,16 @@ import { Permission, isStaff, schemas } from '@sydt/shared';
 import { MAX_MESSAGE_LENGTH } from '@sydt/shared';
 import { z } from 'zod';
 import { prisma } from '../../prisma.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireAuth, type AuthUser } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
 import { messageLimiter } from '../../middleware/ratelimit.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
-import { serializeMessage } from '../serializers.js';
+import { serializeMessage, serializeUser } from '../serializers.js';
 import { loadChannel, assertCanAccessChannel } from './access.js';
 import { channelMessageUpload, safeBasename, absolutePathForStoredAttachment, unlinkQuiet } from '../../lib/upload.js';
+import { isAllowedMessageUpload, verifyMessageUploadFile } from '../../lib/allowed-upload.js';
 import {
   emitMessageDelete,
   emitMessageEdit,
@@ -61,6 +62,75 @@ function extractMentions(content: string): string[] {
   }
   return Array.from(set);
 }
+
+async function assertMessageChannelAccess(messageId: string, user: AuthUser) {
+  const original = await prisma.message.findUnique({ where: { id: messageId } });
+  if (!original) throw NotFound('Message not found');
+  const channel = await loadChannel(original.channelId);
+  await assertCanAccessChannel(channel, user);
+  return { original, channel };
+}
+
+const mentionQuerySchema = z.object({
+  q: z.string().max(64).optional(),
+  limit: z.coerce.number().int().min(1).max(20).optional(),
+});
+
+router.get(
+  '/:channelId/mention-suggest',
+  validate(mentionQuerySchema, 'query'),
+  async (req, res, next) => {
+    try {
+      const channelId = req.params.channelId;
+      if (!channelId) throw NotFound();
+      const channel = await loadChannel(channelId);
+      await assertCanAccessChannel(channel, req.user!);
+      const q = ((req.query as z.infer<typeof mentionQuerySchema>).q ?? '').trim().toLowerCase();
+      const limit = (req.query as z.infer<typeof mentionQuerySchema>).limit ?? 12;
+      const meId = req.user!.id;
+
+      let candidateIds: string[] = [];
+      if (channel.serverId) {
+        const members = await prisma.serverMember.findMany({
+          where: { serverId: channel.serverId, userId: { not: meId } },
+          select: { userId: true },
+        });
+        candidateIds = members.map((m) => m.userId);
+      } else {
+        const users = await prisma.user.findMany({
+          where: { isBanned: false, id: { not: meId } },
+          select: { id: true },
+          take: 200,
+        });
+        candidateIds = users.map((u) => u.id);
+      }
+
+      if (candidateIds.length === 0) {
+        res.json({ users: [] });
+        return;
+      }
+
+      const users = await prisma.user.findMany({
+        where: {
+          id: { in: candidateIds },
+          isBanned: false,
+          ...(q
+            ? {
+                OR: [{ username: { contains: q } }, { displayName: { contains: q } }],
+              }
+            : {}),
+        },
+        include: { team: true },
+        take: limit,
+        orderBy: { displayName: 'asc' },
+      });
+
+      res.json({ users: users.map((u) => serializeUser(u)) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.get(
   '/:channelId/messages',
@@ -131,6 +201,14 @@ router.post(
         for (const f of files) {
           if (f.size > maxBytes) {
             throw BadRequest(`File "${f.originalname}" exceeds upload limit`);
+          }
+          if (!isAllowedMessageUpload(f.mimetype)) {
+            throw BadRequest(`File type not allowed: ${f.originalname}`);
+          }
+          try {
+            await verifyMessageUploadFile(f.path, f.mimetype);
+          } catch {
+            throw BadRequest(`File content rejected: ${f.originalname}`);
           }
           tempPaths.push(f.path);
         }
@@ -244,8 +322,7 @@ router.patch(
     try {
       const id = req.params.id;
       if (!id) throw NotFound();
-      const original = await prisma.message.findUnique({ where: { id } });
-      if (!original) throw NotFound('Message not found');
+      const { original } = await assertMessageChannelAccess(id, req.user!);
       const isOwner = original.authorId === req.user!.id;
       if (!isOwner) throw Forbidden('Cannot edit other messages');
       const data = req.body as ReturnType<typeof schemas.editMessageSchema.parse>;
@@ -271,8 +348,7 @@ router.delete('/messages/:id', async (req, res, next) => {
   try {
     const id = req.params.id;
     if (!id) throw NotFound();
-    const original = await prisma.message.findUnique({ where: { id } });
-    if (!original) throw NotFound('Message not found');
+    const { original } = await assertMessageChannelAccess(id, req.user!);
     const isOwner = original.authorId === req.user!.id;
     const canDeleteAny = isStaff(req.user!.role);
     if (!isOwner && !canDeleteAny) throw Forbidden();
@@ -303,6 +379,7 @@ router.post(
     try {
       const id = req.params.id;
       if (!id) throw NotFound();
+      await assertMessageChannelAccess(id, req.user!);
       const data = req.body as ReturnType<typeof schemas.reactMessageSchema.parse>;
       const existing = await prisma.reaction.findUnique({
         where: {
@@ -345,8 +422,7 @@ router.post(
     try {
       const id = req.params.id;
       if (!id) throw NotFound();
-      const message = await prisma.message.findUnique({ where: { id } });
-      if (!message) throw NotFound();
+      const { original: message } = await assertMessageChannelAccess(id, req.user!);
       await prisma.pin.upsert({
         where: { messageId: id },
         update: { pinnedById: req.user!.id, pinnedAt: new Date() },

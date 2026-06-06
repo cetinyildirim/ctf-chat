@@ -58,7 +58,69 @@ export interface CtfdImportResult {
   skipped: number;
 }
 
-export async function importCtfdChallengesCsv(csvText: string): Promise<CtfdImportResult> {
+function challengeSlugForRow(serverId: string, row: NormRow): string {
+  const serverPart = serverId.slice(-8);
+  if (row.id) return `ctfd-${serverPart}-${row.id}`;
+  return `ctfd-${serverPart}-${slugify(row.category)}-${slugify(row.name)}`;
+}
+
+/** Resolve challenge for this server; never reuse a challenge already bound to another server's channel. */
+async function resolveChallengeForImport(
+  tx: Prisma.TransactionClient,
+  serverId: string,
+  row: NormRow,
+  challengeData: Prisma.ChallengeCreateInput,
+  result: CtfdImportResult,
+): Promise<string> {
+  const scopedSlug = challengeSlugForRow(serverId, row);
+  let existing = await tx.challenge.findUnique({ where: { slug: scopedSlug } });
+
+  // Re-import on same server using legacy global slugs (ctfd-{id})
+  if (!existing && row.id) {
+    const legacy = await tx.challenge.findUnique({ where: { slug: `ctfd-${row.id}` } });
+    if (legacy) {
+      const onThisServer = await tx.channel.findFirst({
+        where: { challengeId: legacy.id, serverId },
+      });
+      if (onThisServer) existing = legacy;
+    }
+  }
+
+  if (existing) {
+    const takenElsewhere = await tx.channel.findFirst({
+      where: { challengeId: existing.id, NOT: { serverId } },
+    });
+    if (takenElsewhere) existing = null;
+  }
+
+  if (existing) {
+    await tx.challenge.update({
+      where: { id: existing.id },
+      data: {
+        title: row.name,
+        description: row.description || '—',
+        category: row.category,
+        points: Math.max(0, Math.floor(Number.parseInt(row.value, 10) || 0)),
+        isReleased: row.state !== 'hidden',
+      },
+    });
+    result.challengesUpdated += 1;
+    return existing.id;
+  }
+
+  let createSlug = scopedSlug;
+  if (await tx.challenge.findUnique({ where: { slug: createSlug } })) {
+    createSlug = `${scopedSlug}-${nanoid(4)}`;
+  }
+
+  const ch = await tx.challenge.create({
+    data: { ...challengeData, slug: createSlug },
+  });
+  result.challengesCreated += 1;
+  return ch.id;
+}
+
+export async function importCtfdChallengesCsv(csvText: string, serverId: string): Promise<CtfdImportResult> {
   const records = parse(csvText, {
     columns: true,
     skip_empty_lines: true,
@@ -84,17 +146,18 @@ export async function importCtfdChallengesCsv(csvText: string): Promise<CtfdImpo
   const catMap = new Map<string, string>();
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    let pos = (await tx.category.findFirst({ orderBy: { position: 'desc' } }))?.position ?? 0;
+    let pos =
+      (await tx.category.findFirst({ where: { serverId }, orderBy: { position: 'desc' } }))?.position ?? 0;
 
     for (const name of categoryNames) {
-      const existing = await tx.category.findFirst({ where: { name } });
+      const existing = await tx.category.findFirst({ where: { name, serverId } });
       if (existing) {
         catMap.set(name, existing.id);
         result.categoriesReused += 1;
       } else {
         pos += 1;
         const created = await tx.category.create({
-          data: { name, position: pos, staffOnly: false },
+          data: { name, position: pos, staffOnly: false, serverId },
         });
         catMap.set(name, created.id);
         result.categoriesCreated += 1;
@@ -104,10 +167,6 @@ export async function importCtfdChallengesCsv(csvText: string): Promise<CtfdImpo
     let chPos = 0;
     for (const row of rows) {
       chPos += 1;
-      const slugBase = row.id
-        ? `ctfd-${row.id}`
-        : `ctfd-${slugify(row.category)}-${slugify(row.name)}-${nanoid(6)}`;
-
       const points = Math.max(0, Math.floor(Number.parseInt(row.value, 10) || 0));
       const isReleased = row.state !== 'hidden';
       const categoryId = catMap.get(row.category);
@@ -116,9 +175,8 @@ export async function importCtfdChallengesCsv(csvText: string): Promise<CtfdImpo
         continue;
       }
 
-      const existingCh = await tx.challenge.findUnique({ where: { slug: slugBase } });
       const challengeData: Prisma.ChallengeCreateInput = {
-        slug: slugBase,
+        slug: challengeSlugForRow(serverId, row),
         title: row.name,
         description: row.description || '—',
         category: row.category,
@@ -129,33 +187,15 @@ export async function importCtfdChallengesCsv(csvText: string): Promise<CtfdImpo
         flag: DUMMY_FLAG,
       };
 
-      let challengeId: string;
-      if (existingCh) {
-        await tx.challenge.update({
-          where: { id: existingCh.id },
-          data: {
-            title: row.name,
-            description: row.description || '—',
-            category: row.category,
-            points,
-            isReleased,
-          },
-        });
-        challengeId = existingCh.id;
-        result.challengesUpdated += 1;
-      } else {
-        const ch = await tx.challenge.create({ data: challengeData });
-        challengeId = ch.id;
-        result.challengesCreated += 1;
-      }
+      const challengeId = await resolveChallengeForImport(tx, serverId, row, challengeData, result);
 
       const existingChan = await tx.channel.findFirst({
-        where: { challengeId },
+        where: { challengeId, serverId },
       });
 
       const slug =
         existingChan?.slug ??
-        `${slugify(row.category).slice(0, 24)}-${slugify(row.name).slice(0, 24)}-${nanoid(4)}`.slice(
+        `${slugify(row.category).slice(0, 20)}-${slugify(row.name).slice(0, 20)}-${serverId.slice(-4)}-${nanoid(4)}`.slice(
           0,
           80,
         );
@@ -168,6 +208,7 @@ export async function importCtfdChallengesCsv(csvText: string): Promise<CtfdImpo
         position: chPos,
         categoryId,
         challengeId,
+        serverId,
         iconKey: 'flag' as const,
         isPrivate: false,
         isLocked: false,
@@ -197,6 +238,6 @@ export async function importCtfdChallengesCsv(csvText: string): Promise<CtfdImpo
     if (cat) await provisionTeamRoomsForCategory(prisma, cat);
   }
 
-  emitChannelsRefresh();
+  emitChannelsRefresh(serverId);
   return result;
 }

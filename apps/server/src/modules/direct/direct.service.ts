@@ -3,7 +3,7 @@ import { prisma } from '../../prisma.js';
 import type { Role } from '@sydt/shared';
 import { canUsersDirectMessage } from '../../lib/direct-message-rules.js';
 import { BadRequest } from '../../lib/http-error.js';
-import { emitChannelsRefresh } from '../../realtime/broadcasters.js';
+import { emitChannelsRefresh, emitChannelsRefreshToUsers } from '../../realtime/broadcasters.js';
 
 function dmSlugForPair(userIdA: string, userIdB: string): string {
   const [lo, hi] = [userIdA, userIdB].sort();
@@ -72,7 +72,7 @@ export async function ensureDirectChannel(actorId: string, peerId: string) {
     return channel;
   });
 
-  emitChannelsRefresh();
+  emitChannelsRefreshToUsers([actorId, peerId]);
   return chan.id;
 }
 
@@ -124,6 +124,6 @@ export async function ensureDirectChannelForBroadcast(actorId: string, peerId: s
     });
   });
 
-  emitChannelsRefresh();
+  emitChannelsRefreshToUsers([actorId, peerId]);
   return chan.id;
 }

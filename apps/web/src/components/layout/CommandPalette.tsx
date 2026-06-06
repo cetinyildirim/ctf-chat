@@ -15,6 +15,7 @@ import {
 import { useUIStore } from '@/store/ui';
 import { channelsApi, challengesApi, ticketsApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/query/client';
+import { useServerStore } from '@/store/server';
 import {
   Hash,
   Flag,
@@ -23,6 +24,7 @@ import {
   ShieldAlert,
   AlertOctagon,
   Users,
+  Bell,
   ArrowRight,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
@@ -33,6 +35,7 @@ export function CommandPalette() {
   const open = useUIStore((s) => s.commandOpen);
   const setOpen = useUIStore((s) => s.setCommandOpen);
   const user = useAuthStore((s) => s.user);
+  const activeServerId = useServerStore((s) => s.activeServerId);
 
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -47,9 +50,9 @@ export function CommandPalette() {
   }, [open, setOpen]);
 
   const { data: channelsData } = useQuery({
-    queryKey: queryKeys.channels,
-    queryFn: channelsApi.list,
-    enabled: open && !!user,
+    queryKey: queryKeys.channels(activeServerId ?? ''),
+    queryFn: () => channelsApi.list(activeServerId!),
+    enabled: open && !!user && !!activeServerId,
   });
 
   const { data: challenges } = useQuery({
@@ -92,6 +95,9 @@ export function CommandPalette() {
           </CommandItem>
           <CommandItem onSelect={() => go('/team')}>
             <Users className="h-4 w-4 text-accent-violet" /> My team
+          </CommandItem>
+          <CommandItem onSelect={() => go('/notifications')}>
+            <Bell className="h-4 w-4 text-accent-cyan" /> Notifications
           </CommandItem>
           {isStaff(user?.role) ? (
             <CommandItem onSelect={() => go('/incidents')}>

@@ -13,6 +13,7 @@ import { useI18n } from '@/components/providers/LocaleProvider';
 import { usePlatformBranding } from '@/components/providers/PlatformBrandingProvider';
 import { SurveyGate } from '@/components/surveys/SurveyGate';
 import { UserProfileProvider } from '@/components/users/UserProfileProvider';
+import { ServerBootstrap } from '@/components/servers/ServerBootstrap';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const ready = useAuthStore((s) => s.ready);
@@ -55,6 +56,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <CommandPalette />
       <SurveyGate />
       <UserProfileProvider />
+      <ServerBootstrap />
     </div>
   );
 }

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { UPLOAD_ROOT } from './upload.js';
 
-export type LogoKind = 'category' | 'channel' | 'user' | 'team';
+export type LogoKind = 'category' | 'channel' | 'user' | 'team' | 'server';
 
 const MIME: Record<string, string> = {
   '.png': 'image/png',

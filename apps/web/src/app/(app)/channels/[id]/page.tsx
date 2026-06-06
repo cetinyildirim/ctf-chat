@@ -1,32 +1,44 @@
 'use client';
 
 import * as React from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Hash, Lock, Pin, Users, AlertTriangle } from 'lucide-react';
-import type { Message } from '@sydt/shared';
-import { channelsApi, messagesApi } from '@/lib/api/endpoints';
+import type { Message, PinnedMessageEntry } from '@sydt/shared';
+import { channelsApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/query/client';
 import { getSocket } from '@/lib/socket/client';
 import { TopBar } from '@/components/layout/TopBar';
 import { RightPanel, MembersPanel } from '@/components/layout/RightPanel';
-import { MessageList } from '@/components/chat/MessageList';
+import { MessageList, type MessageListHandle } from '@/components/chat/MessageList';
 import { MessageComposer } from '@/components/chat/MessageComposer';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { LoadingScreen } from '@/components/common/LoadingScreen';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { MessageMarkdown } from '@/components/chat/MessageMarkdown';
-import { Avatar } from '@/components/ui/avatar';
-import { smartDate } from '@/lib/format/time';
-import { Section } from '@/components/common/Section';
+import { ChannelPinnedPanel } from '@/components/chat/ChannelPinnedPanel';
 import { useAuthStore } from '@/store/auth';
+import { useI18n } from '@/components/providers/LocaleProvider';
 
 export default function ChannelPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const channelId = params.id;
   const me = useAuthStore((s) => s.user);
+  const { t } = useI18n();
+
+  const panelTab = searchParams.get('panel') === 'pins' ? 'pins' : 'members';
+
+  const setPanelTab = React.useCallback(
+    (tab: 'members' | 'pins') => {
+      const next = new URLSearchParams(searchParams.toString());
+      if (tab === 'pins') next.set('panel', 'pins');
+      else next.delete('panel');
+      const q = next.toString();
+      router.replace(q ? `/channels/${channelId}?${q}` : `/channels/${channelId}`);
+    },
+    [channelId, router, searchParams],
+  );
 
   const { data: channel, isLoading } = useQuery({
     queryKey: queryKeys.channel(channelId),
@@ -34,6 +46,7 @@ export default function ChannelPage() {
   });
 
   const [replyTo, setReplyTo] = React.useState<Message | null>(null);
+  const messageListRef = React.useRef<MessageListHandle>(null);
 
   React.useEffect(() => {
     if (!channelId) return;
@@ -100,11 +113,11 @@ export default function ChannelPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => router.push(`/channels/${channelId}?panel=pins`)}
-              className="hidden md:inline-flex"
+              onClick={() => setPanelTab('pins')}
+              className="hidden gap-1.5 md:inline-flex"
             >
               <Pin className="h-3.5 w-3.5" />
-              Pins
+              {t.channelPinsBtn}
             </Button>
           }
         />
@@ -114,7 +127,12 @@ export default function ChannelPage() {
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1">
-              <MessageList channelId={channelId} onReply={setReplyTo} />
+              <MessageList
+                ref={messageListRef}
+                channelId={channelId}
+                serverId={channel.serverId ?? undefined}
+                onReply={setReplyTo}
+              />
             </div>
             <MessageComposer
               channelId={channelId}
@@ -127,27 +145,53 @@ export default function ChannelPage() {
         )}
       </div>
 
-      <RightPanel slot={<ChannelContextPanel channelId={channelId} />} />
+      <RightPanel
+        slot={
+          <ChannelContextPanel
+            channelId={channelId}
+            serverId={channel.serverId}
+            tab={panelTab}
+            onTabChange={setPanelTab}
+            onJumpToPin={(entry) => {
+              if (entry.channelId === channelId) {
+                messageListRef.current?.scrollToMessage(entry.message.id);
+                return;
+              }
+              router.push(`/channels/${entry.channelId}?panel=pins#message-${entry.message.id}`);
+            }}
+          />
+        }
+      />
     </div>
   );
 }
 
-function ChannelContextPanel({ channelId }: { channelId: string }) {
-  const { data: pins } = useQuery({
-    queryKey: queryKeys.pins(channelId),
-    queryFn: () => messagesApi.listPins(channelId),
-    staleTime: 60_000,
-  });
+function ChannelContextPanel({
+  channelId,
+  serverId,
+  tab,
+  onTabChange,
+  onJumpToPin,
+}: {
+  channelId: string;
+  serverId?: string | null;
+  tab: 'members' | 'pins';
+  onTabChange: (tab: 'members' | 'pins') => void;
+  onJumpToPin: (entry: PinnedMessageEntry) => void;
+}) {
+  const { t } = useI18n();
 
   return (
-    <Tabs defaultValue="members" className="flex h-full flex-col">
+    <Tabs value={tab} onValueChange={(v) => onTabChange(v as 'members' | 'pins')} className="flex h-full flex-col">
       <div className="border-b border-white/5 px-2 pt-2">
         <TabsList className="w-full">
-          <TabsTrigger value="members" className="flex-1">
-            <Users className="h-3 w-3" /> Members
+          <TabsTrigger value="members" className="flex-1 gap-1.5">
+            <Users className="h-3 w-3 shrink-0" />
+            {t.channelPanelMembers}
           </TabsTrigger>
-          <TabsTrigger value="pins" className="flex-1">
-            <Pin className="h-3 w-3" /> Pinned
+          <TabsTrigger value="pins" className="flex-1 gap-1.5">
+            <Pin className="h-3 w-3 shrink-0" />
+            {t.channelPanelPinned}
           </TabsTrigger>
         </TabsList>
       </div>
@@ -155,29 +199,11 @@ function ChannelContextPanel({ channelId }: { channelId: string }) {
         <MembersPanel />
       </TabsContent>
       <TabsContent value="pins" className="m-0 min-h-0 flex-1">
-        <ScrollArea className="h-full">
-          <div className="space-y-3 p-3">
-            <Section title="Pinned messages" description="Important context surfaced by staff" >
-              {!pins || pins.length === 0 ? (
-                <div className="rounded-md border border-dashed border-white/10 p-4 text-xs text-muted-fg">
-                  No pinned messages.
-                </div>
-              ) : (
-                pins.map((p) => (
-                  <div key={p.id} className="rounded-md border border-white/8 bg-white/[0.02] p-2.5">
-                    <div className="mb-1 flex items-center gap-2 text-[11px] text-fg-subtle">
-                      <Avatar name={p.author.displayName} src={p.author.avatarUrl} size="xs" />
-                      <span className="font-medium text-fg">{p.author.displayName}</span>
-                      <span>·</span>
-                      <span>{smartDate(p.createdAt)}</span>
-                    </div>
-                    <MessageMarkdown content={p.content} />
-                  </div>
-                ))
-              )}
-            </Section>
-          </div>
-        </ScrollArea>
+        {serverId ? (
+          <ChannelPinnedPanel serverId={serverId} activeChannelId={channelId} onJumpToPin={onJumpToPin} />
+        ) : (
+          <div className="p-3 text-xs text-muted-fg">{t.channelPinnedEmpty}</div>
+        )}
       </TabsContent>
     </Tabs>
   );

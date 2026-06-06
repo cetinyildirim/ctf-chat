@@ -19,6 +19,7 @@ import { usePresenceStore } from '@/store/presence';
 import { useNotificationStore } from '@/store/notifications';
 import { getSocket, disconnectSocket } from '@/lib/socket/client';
 import { queryKeys } from '@/lib/query/client';
+import { useServerStore } from '@/store/server';
 import { playSound } from '@/lib/notifications/sound';
 import { showBrowserNotification } from '@/lib/notifications/browser';
 import { toast } from 'sonner';
@@ -26,6 +27,7 @@ import { toast } from 'sonner';
 export function SocketBridge() {
   const user = useAuthStore((s) => s.user);
   const ready = useAuthStore((s) => s.ready);
+  const activeServerId = useServerStore((s) => s.activeServerId);
   const queryClient = useQueryClient();
   const setPresences = usePresenceStore((s) => s.setPresences);
   const upsertPresence = usePresenceStore((s) => s.upsertPresence);
@@ -51,7 +53,9 @@ export function SocketBridge() {
     };
 
     const notifyForChannel = (channelId: string) => {
-      const cached = queryClient.getQueryData<ChannelsListPayload>(queryKeys.channels);
+      const cached = queryClient.getQueryData<ChannelsListPayload>(
+        queryKeys.channels(activeServerId ?? ''),
+      );
       const prefs = cached?.notificationPrefs;
       const listDefault = prefs?.defaultNotifyMode ?? user.defaultNotifyMode;
       const stored = prefs?.overrides[channelId];
@@ -202,10 +206,14 @@ export function SocketBridge() {
 
     const onAnnouncement = (payload: { announcement: Announcement }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.announcements });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notificationsFeed });
+      const annHref = `/notifications?announcement=${payload.announcement.id}`;
       pushNotification({
         kind: 'announcement',
         title: payload.announcement.title,
         body: payload.announcement.body.slice(0, 200),
+        href: annHref,
+        refId: payload.announcement.id,
       });
       if (soundEnabled && !dnd) playSound('announcement');
       toast(payload.announcement.title, { description: payload.announcement.body });
@@ -213,11 +221,11 @@ export function SocketBridge() {
     };
 
     const onChannelCreated = (_payload: { channel: Channel }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.channels });
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelsAll });
     };
 
     const onChannelsRefresh = () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.channels });
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelsAll });
     };
 
     const onMention = (payload: { messageId: string; channelId: string; fromUserId: string; preview: string }) => {
@@ -272,7 +280,7 @@ export function SocketBridge() {
       socket.off('channels:refresh', onChannelsRefresh);
       socket.off('mention:new', onMention);
     };
-  }, [ready, user, queryClient, setPresences, upsertPresence, setTyping, pushNotification, soundEnabled, dnd]);
+  }, [ready, user, activeServerId, queryClient, setPresences, upsertPresence, setTyping, pushNotification, soundEnabled, dnd]);
 
   return null;
 }

@@ -7,9 +7,14 @@ import { getScoreboard } from './modules/scoreboard/scoreboard.service.js';
 import { emitScoreboardUpdate } from './realtime/broadcasters.js';
 import { prisma } from './prisma.js';
 import { warmPlatformSettingsCache } from './lib/platform-settings.js';
+import { ensureDefaultChatServer } from './lib/migrate-default-server.js';
+import { publishDueAnnouncements } from './lib/announcement-publish.js';
 
 async function main() {
   await warmPlatformSettingsCache().catch(() => undefined);
+  await ensureDefaultChatServer().catch((err) => {
+    logger.warn({ err }, 'default server migration skipped');
+  });
   const app = createApp();
   const httpServer = http.createServer(app);
   const io = createSocketServer(httpServer);
@@ -30,6 +35,10 @@ async function main() {
       logger.warn({ err }, 'scoreboard poll failed');
     }
   }, 10_000).unref?.();
+
+  setInterval(() => {
+    void publishDueAnnouncements().catch((err) => logger.warn({ err }, 'announcement scheduler failed'));
+  }, 30_000).unref?.();
 
   httpServer.listen(env.PORT, () => {
     logger.info(`SYDT API listening on http://localhost:${env.PORT}`);

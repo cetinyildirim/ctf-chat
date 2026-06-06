@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { schemas } from '@sydt/shared';
@@ -21,10 +22,20 @@ import { normalizeSessionUser } from '@/lib/auth/session-normalize';
 
 type FormValues = z.infer<typeof schemas.registerSchema>;
 
-export default function RegisterPage() {
+function RegisterForm() {
   const { t } = useI18n();
   const router = useRouter();
+  const params = useSearchParams();
   const setUser = useAuthStore((s) => s.setUser);
+
+  useEffect(() => {
+    void authApi.ensureCsrf().catch(() => {
+      /* non-fatal before first POST */
+    });
+  }, []);
+
+  const next = params.get('next') ?? '/';
+  const loginHref = next === '/' ? '/login' : `/login?next=${encodeURIComponent(next)}`;
   const {
     register,
     handleSubmit,
@@ -46,7 +57,7 @@ export default function RegisterPage() {
       const user = await authApi.register(values);
       setUser(normalizeSessionUser(user as SessionUser));
       toast.success(t.authRegisterWelcome.replace('{{name}}', user.displayName));
-      router.replace('/');
+      router.replace(next);
     } catch (err) {
       const { message } = unwrapApiError(err);
       toast.error(message ?? t.authRegisterFailed);
@@ -60,7 +71,7 @@ export default function RegisterPage() {
       footer={
         <>
           {t.authFooterHasAccount}{' '}
-          <Link href="/login" className="text-accent-cyan hover:underline">
+          <Link href={loginHref} className="text-accent-cyan hover:underline">
             {t.authFooterSignIn}
           </Link>
         </>
@@ -112,5 +123,26 @@ export default function RegisterPage() {
         </Button>
       </form>
     </AuthShell>
+  );
+}
+
+function RegisterFallback() {
+  const { t } = useI18n();
+  return (
+    <AuthShell title={t.authRegisterTitle} subtitle={t.authLoading}>
+      <div className="space-y-4">
+        <div className="h-10 animate-pulse rounded-md bg-white/5" />
+        <div className="h-10 animate-pulse rounded-md bg-white/5" />
+        <div className="h-11 animate-pulse rounded-md bg-white/8" />
+      </div>
+    </AuthShell>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<RegisterFallback />}>
+      <RegisterForm />
+    </Suspense>
   );
 }

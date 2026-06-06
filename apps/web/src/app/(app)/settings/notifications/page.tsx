@@ -7,6 +7,7 @@ import { Bell, BellOff, Volume2, VolumeX, Radar } from 'lucide-react';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { useNotificationStore } from '@/store/notifications';
 import { requestBrowserPermission } from '@/lib/notifications/browser';
 import { toast } from 'sonner';
@@ -43,35 +44,18 @@ export default function NotificationSettingsPage() {
     onIcon: React.ReactNode;
     offIcon: React.ReactNode;
   }) => (
-    <div className="flex items-start gap-4 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3">
-      <div className={cn('mt-0.5 text-accent-cyan', pressed ? 'opacity-100' : 'opacity-75')}>{pressed ? onIcon : offIcon}</div>
-      <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <Label htmlFor={id} className="text-sm text-fg">
+    <div className="flex items-center gap-4 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3.5">
+      <div className={cn('shrink-0 text-accent-cyan', pressed ? 'opacity-100' : 'opacity-75')}>
+        {pressed ? onIcon : offIcon}
+      </div>
+      <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
+        <div className="min-w-0 pr-2">
+          <Label htmlFor={id} className="text-sm font-medium text-fg">
             {label}
           </Label>
           <p className="mt-1 text-xs text-fg-subtle">{description}</p>
         </div>
-        <button
-          id={id}
-          type="button"
-          role="switch"
-          aria-checked={pressed}
-          onClick={onToggle}
-          className={cn(
-            'relative h-9 w-[52px] shrink-0 rounded-full border transition-colors',
-            pressed ? 'border-accent-cyan/50 bg-accent-cyan/25' : 'border-white/10 bg-bg-deep',
-          )}
-        >
-          <span
-            className={cn(
-              'absolute left-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-bg shadow-md transition-all',
-              pressed ? 'translate-x-[22px]' : 'translate-x-0',
-            )}
-          >
-            <span className="h-2 w-2 rounded-full bg-accent-cyan" />
-          </span>
-        </button>
+        <Switch id={id} checked={pressed} onCheckedChange={() => onToggle()} />
       </div>
     </div>
   );

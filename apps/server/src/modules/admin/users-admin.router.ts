@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Permission } from '@sydt/shared';
+import { Permission, can } from '@sydt/shared';
 import { prisma } from '../../prisma.js';
 import { requireAnyPermission } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
-import { NotFound } from '../../lib/http-error.js';
+import { Forbidden, NotFound } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
 import { serializeUser } from '../serializers.js';
+import { revokeAllRefreshTokens, revokeSessionsIfAuthProfileChanged } from '../../lib/revoke-sessions.js';
 
 const router: Router = Router();
 router.use(requireAnyPermission(Permission.USER_BAN, Permission.USER_MUTE, Permission.USER_VIEW_ALL));
@@ -134,6 +135,16 @@ router.patch('/:id/moderation', validate(idSchema, 'params'), validate(moderatio
   try {
     const id = req.params.id!;
     const data = req.body as z.infer<typeof moderationSchema>;
+    const actor = req.user!;
+    if (data.isBanned !== undefined && !can(actor.role, Permission.USER_BAN)) {
+      throw Forbidden('Missing permission to ban users');
+    }
+    if (
+      (data.mutedUntil !== undefined || data.muteMinutes !== undefined) &&
+      !can(actor.role, Permission.USER_MUTE)
+    ) {
+      throw Forbidden('Missing permission to mute users');
+    }
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) throw NotFound();
 
@@ -157,6 +168,12 @@ router.patch('/:id/moderation', validate(idSchema, 'params'), validate(moderatio
       },
       include: { team: true },
     });
+
+    if (data.isBanned === true && updated.isBanned) {
+      await revokeAllRefreshTokens(id);
+    } else {
+      await revokeSessionsIfAuthProfileChanged(id, existing, updated);
+    }
 
     await audit({
       actorId: req.user?.id,

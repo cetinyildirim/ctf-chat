@@ -2,12 +2,13 @@
 
 import * as React from 'react';
 import { Send, Reply, X, Smile, Paperclip } from 'lucide-react';
-import type { Message } from '@sydt/shared';
+import type { Message, PublicUser } from '@sydt/shared';
 import { MAX_MESSAGE_LENGTH } from '@sydt/shared';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { messagesApi } from '@/lib/api/endpoints';
+import { queryKeys } from '@/lib/query/client';
 import { unwrapApiError } from '@/lib/api/axios';
 import { getSocket } from '@/lib/socket/client';
 import { toast } from 'sonner';
@@ -15,6 +16,12 @@ import { cn } from '@/lib/utils';
 import { MessageComposerHelp } from '@/components/chat/MessageComposerHelp';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api/axios';
+import { useI18n } from '@/components/providers/LocaleProvider';
+import {
+  MentionAutocomplete,
+  getMentionRange,
+  type MentionRange,
+} from '@/components/chat/MentionAutocomplete';
 
 interface Props {
   channelId: string;
@@ -27,9 +34,12 @@ interface Props {
 const EMOJIS = ['👍', '🔥', '🩸', '💀', '🛡️', '🎯', '✅', '❌', '🚀', '🧠', '⚡', '🕵️‍♂️'];
 
 export function MessageComposer({ channelId, replyTo, onClearReply, disabled, disabledReason }: Props) {
+  const { t } = useI18n();
   const [value, setValue] = React.useState('');
   const [pendingFiles, setPendingFiles] = React.useState<File[]>([]);
   const [sending, setSending] = React.useState(false);
+  const [mentionRange, setMentionRange] = React.useState<MentionRange | null>(null);
+  const [mentionIndex, setMentionIndex] = React.useState(0);
   const ref = React.useRef<HTMLTextAreaElement | null>(null);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
   const typingTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -45,6 +55,13 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
     };
   }, [channelId]);
 
+  const { data: mentionUsers = [] } = useQuery({
+    queryKey: queryKeys.channelMentionSuggest(channelId, mentionRange?.query ?? ''),
+    queryFn: () => messagesApi.mentionSuggest(channelId, mentionRange!.query),
+    enabled: !!mentionRange && !!channelId,
+    staleTime: 10_000,
+  });
+
   const { data: platformConfig } = useQuery({
     queryKey: ['config'] as const,
     queryFn: async () => {
@@ -57,6 +74,26 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
   const remaining = MAX_MESSAGE_LENGTH - value.length;
   const tooLong = remaining < 0;
   const canSend = (value.trim().length > 0 || pendingFiles.length > 0) && !tooLong;
+
+  const syncMention = (text: string, caret: number) => {
+    const range = getMentionRange(text, caret);
+    setMentionRange(range);
+    if (range) setMentionIndex(0);
+  };
+
+  const insertMention = (user: PublicUser) => {
+    const el = ref.current;
+    if (!el || !mentionRange) return;
+    const end = el.selectionStart ?? value.length;
+    const next = `${value.slice(0, mentionRange.start)}@${user.username} ${value.slice(end)}`;
+    setValue(next);
+    setMentionRange(null);
+    const pos = mentionRange.start + user.username.length + 2;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(pos, pos);
+    });
+  };
 
   const addFiles = (list: FileList | File[]) => {
     const next = [...pendingFiles];
@@ -78,6 +115,7 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
     if ((!content && !hasFiles) || sending || disabled) return;
     if (tooLong) return;
     setSending(true);
+    setMentionRange(null);
     try {
       if (hasFiles) {
         await messagesApi.sendWithFiles(channelId, {
@@ -96,10 +134,33 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
       toast.error(unwrapApiError(err).message);
     } finally {
       setSending(false);
+      requestAnimationFrame(() => ref.current?.focus());
     }
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionRange && mentionUsers.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionUsers.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex((i) => (i - 1 + mentionUsers.length) % mentionUsers.length);
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        const pick = mentionUsers[mentionIndex % mentionUsers.length];
+        if (pick) insertMention(pick);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setMentionRange(null);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void send();
@@ -109,9 +170,11 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
   };
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setValue(e.target.value);
+    const next = e.target.value;
+    setValue(next);
+    syncMention(next, e.target.selectionStart ?? next.length);
     const socket = getSocket();
-    if (e.target.value.length > 0) {
+    if (next.length > 0) {
       socket.emit('typing:start', { channelId });
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
@@ -122,6 +185,11 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
     }
   };
 
+  const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    syncMention(el.value, el.selectionStart ?? el.value.length);
+  };
+
   return (
     <div className="border-t border-white/5 bg-bg-deep/40 px-4 py-3 backdrop-blur-md">
       <MessageComposerHelp draft={value} />
@@ -129,10 +197,11 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
         <div className="mb-2 flex items-center gap-2 rounded-md border-l-2 border-accent-violet/60 bg-accent-violet/5 px-2 py-1 text-xs text-fg-subtle">
           <Reply className="h-3 w-3 text-accent-violet" />
           <span className="truncate">
-            Replying to <span className="font-medium text-fg">{replyTo.author.displayName}</span> ·{' '}
-            <span className="truncate">{replyTo.content || '(empty)'}</span>
+            {t.composerReplyingTo}{' '}
+            <span className="font-medium text-fg">{replyTo.author.displayName}</span> ·{' '}
+            <span className="truncate">{replyTo.content || t.composerEmptyReply}</span>
           </span>
-          <button onClick={onClearReply} className="ml-auto text-muted-fg hover:text-fg">
+          <button type="button" onClick={onClearReply} className="ml-auto text-muted-fg hover:text-fg">
             <X className="h-3 w-3" />
           </button>
         </div>
@@ -170,7 +239,7 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
       />
       <div
         className={cn(
-          'flex items-end gap-2 rounded-xl border border-white/10 bg-bg-elev/60 p-2 transition-colors focus-within:border-accent-cyan/40 focus-within:shadow-glow-cyan/30',
+          'relative flex items-end gap-2 rounded-xl border border-white/10 bg-bg-elev/60 p-2 transition-colors focus-within:border-accent-cyan/40 focus-within:shadow-glow-cyan/30',
           disabled && 'opacity-60',
         )}
         onDragOver={(e) => {
@@ -184,6 +253,14 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
           if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
         }}
       >
+        {mentionRange ? (
+          <MentionAutocomplete
+            channelId={channelId}
+            range={mentionRange}
+            activeIndex={mentionIndex}
+            onPick={insertMention}
+          />
+        ) : null}
         <button
           type="button"
           className="grid h-9 w-9 place-items-center rounded-md text-fg-subtle hover:bg-white/8 hover:text-fg disabled:pointer-events-none disabled:opacity-40"
@@ -198,16 +275,24 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
           value={value}
           onChange={onChange}
           onKeyDown={onKeyDown}
-          placeholder={disabled ? disabledReason ?? 'Read-only channel' : 'Message #channel · Enter to send · Shift+Enter for newline'}
+          onClick={onSelect}
+          onKeyUp={onSelect}
+          placeholder={
+            disabled
+              ? disabledReason ?? t.composerReadOnly
+              : t.composerPlaceholder
+          }
           className="max-h-40 min-h-[40px] resize-none border-0 bg-transparent p-1 focus-visible:ring-0"
           rows={Math.min(6, Math.max(1, value.split('\n').length))}
-          disabled={disabled || sending}
+          disabled={disabled}
+          aria-busy={sending}
         />
         <Popover>
           <PopoverTrigger asChild>
             <button
               type="button"
               className="grid h-9 w-9 place-items-center rounded-md text-fg-subtle hover:bg-white/8 hover:text-fg"
+              disabled={disabled}
             >
               <Smile className="h-4 w-4" />
             </button>
@@ -238,9 +323,7 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
         </Button>
       </div>
       <div className="mt-1.5 flex items-center justify-between px-1 text-[10px] text-muted-fg">
-        <span>
-          Markdown · ```code``` · @mentions · max {platformConfig?.uploadMaxMb ?? 100} MB / file
-        </span>
+        <span>{t.composerHintFooter.replace('{{mb}}', String(platformConfig?.uploadMaxMb ?? 100))}</span>
         <span className={cn(tooLong && 'text-accent-rose')}>{remaining} chars left</span>
       </div>
     </div>

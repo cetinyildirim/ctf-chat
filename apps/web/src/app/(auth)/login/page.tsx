@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -27,6 +27,12 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const setUser = useAuthStore((s) => s.setUser);
+
+  useEffect(() => {
+    void authApi.ensureCsrf().catch(() => {
+      /* non-fatal before first POST */
+    });
+  }, []);
   const {
     register,
     handleSubmit,
@@ -37,6 +43,7 @@ function LoginForm() {
   });
 
   const next = params.get('next') ?? '/';
+  const registerHref = next === '/' ? '/register' : `/register?next=${encodeURIComponent(next)}`;
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -57,7 +64,7 @@ function LoginForm() {
       footer={
         <>
           {t.authFooterNewUser}{' '}
-          <Link href="/register" className="text-accent-cyan hover:underline">
+          <Link href={registerHref} className="text-accent-cyan hover:underline">
             {t.authFooterRegister}
           </Link>
         </>

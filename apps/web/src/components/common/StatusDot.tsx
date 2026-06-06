@@ -3,9 +3,9 @@ import { cn } from '@/lib/utils';
 import type { UserStatus } from '@sydt/shared';
 
 const colorByStatus: Record<UserStatus, string> = {
-  ONLINE: 'bg-accent-emerald shadow-glow-emerald',
+  ONLINE: 'bg-accent-emerald',
   IDLE: 'bg-accent-amber',
-  DND: 'bg-accent-rose shadow-glow-rose',
+  DND: 'bg-accent-rose',
   OFFLINE: 'bg-muted-fg/60',
 };
 
@@ -22,7 +22,7 @@ export function StatusDot({ status, size = 'sm', className, ringClass }: StatusD
   return (
     <span
       className={cn(
-        'inline-block rounded-full ring-2 ring-bg-deep',
+        'block shrink-0 rounded-full ring-2 ring-bg-deep',
         sizes[size],
         colorByStatus[status],
         ringClass,

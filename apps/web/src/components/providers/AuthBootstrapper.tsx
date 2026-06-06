@@ -18,6 +18,7 @@ export function AuthBootstrapper() {
     let mounted = true;
     (async () => {
       try {
+        await authApi.ensureCsrf();
         const user = await authApi.me();
         if (!mounted) return;
         setUser(normalizeSessionUser(user));

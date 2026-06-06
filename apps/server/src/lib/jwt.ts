@@ -38,6 +38,7 @@ export function signRefreshToken(payload: RefreshTokenPayload): string {
 
 export function verifyAccessToken(token: string): AccessTokenPayload {
   return jwt.verify(token, env.JWT_ACCESS_SECRET, {
+    algorithms: ['HS256'],
     issuer: 'sydt',
     audience: 'sydt-web',
   }) as AccessTokenPayload;
@@ -45,6 +46,7 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
 
 export function verifyRefreshToken(token: string): RefreshTokenPayload {
   return jwt.verify(token, env.JWT_REFRESH_SECRET, {
+    algorithms: ['HS256'],
     issuer: 'sydt',
     audience: 'sydt-refresh',
   }) as RefreshTokenPayload;

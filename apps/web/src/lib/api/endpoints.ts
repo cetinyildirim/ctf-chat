@@ -18,15 +18,22 @@ import type {
   ActivityBucket,
   ChannelsListPayload,
   ChannelNotifyMode,
+  ChatServer,
+  ServerInvite,
+  ServerMemberProfile,
   SurveyDto,
   SurveyStatsDto,
   PlatformBranding,
+  PlatformPage,
 } from '@sydt/shared';
 import { schemas } from '@sydt/shared';
 import type { z } from 'zod';
 import { api } from './axios';
 
 export const authApi = {
+  async ensureCsrf() {
+    await api.get('/auth/csrf');
+  },
   async me() {
     const { data } = await api.get<{ user: SessionUser }>('/auth/me');
     return data.user;
@@ -48,6 +55,13 @@ export const authApi = {
   },
   async logout() {
     await api.post('/auth/logout');
+  },
+  async logoutAll() {
+    await api.post('/auth/logout-all');
+  },
+  async refresh() {
+    const { data } = await api.post<{ user: SessionUser }>('/auth/refresh');
+    return data.user;
   },
 };
 
@@ -79,9 +93,214 @@ export const categoriesApi = {
   },
 };
 
-export const channelsApi = {
+export type ServerInvitePreview = {
+  code: string;
+  server: ChatServer;
+  channelId: string | null;
+  channelName: string | null;
+  uses: number;
+  maxUses: number | null;
+  expiresAt: string | null;
+  expired: boolean;
+  alreadyMember: boolean;
+  bannedFromServer?: boolean;
+};
+
+export const invitesApi = {
+  async preview(code: string) {
+    const { data } = await api.get<{ invite: ServerInvitePreview }>(`/invites/${encodeURIComponent(code)}`);
+    return data.invite;
+  },
+  async accept(code: string) {
+    const { data } = await api.post<{
+      server: ChatServer;
+      channelId: string | null;
+      joined: boolean;
+      alreadyMember: boolean;
+    }>(`/invites/${encodeURIComponent(code)}/accept`);
+    return data;
+  },
+};
+
+export const serversApi = {
   async list() {
-    const { data } = await api.get<ChannelsListPayload>('/channels');
+    const { data } = await api.get<{ servers: ChatServer[] }>('/servers');
+    return data.servers;
+  },
+  async listManageable() {
+    const { data } = await api.get<{ servers: ChatServer[] }>('/servers/manageable');
+    return data.servers;
+  },
+  async create(body: z.infer<typeof schemas.createChatServerSchema>) {
+    const { data } = await api.post<{ server: ChatServer }>('/servers', body);
+    return data.server;
+  },
+  async update(id: string, body: z.infer<typeof schemas.updateChatServerSchema>) {
+    const { data } = await api.patch<{ server: ChatServer }>(`/servers/${id}`, body);
+    return data.server;
+  },
+  async remove(id: string) {
+    await api.delete(`/servers/${id}`);
+  },
+  async uploadLogo(id: string, file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    const { data } = await api.post<{ server: ChatServer }>(`/servers/${id}/logo`, form, { timeout: 60_000 });
+    return data.server;
+  },
+  async clearLogo(id: string) {
+    const { data } = await api.delete<{ server: ChatServer }>(`/servers/${id}/logo`);
+    return data.server;
+  },
+  async getMe(serverId: string) {
+    const { data } = await api.get<{ member: ServerMemberProfile }>(`/servers/${serverId}/me`);
+    return data.member;
+  },
+  async patchMe(serverId: string, body: z.infer<typeof schemas.patchServerMemberSchema>) {
+    const { data } = await api.patch<{ member: ServerMemberProfile }>(`/servers/${serverId}/me`, body);
+    return data.member;
+  },
+  async uploadMeAvatar(serverId: string, file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    const { data } = await api.post<{ member: ServerMemberProfile }>(`/servers/${serverId}/me/avatar`, form, {
+      timeout: 60_000,
+    });
+    return data.member;
+  },
+  async clearMeAvatar(serverId: string) {
+    const { data } = await api.delete<{ member: ServerMemberProfile }>(`/servers/${serverId}/me/avatar`);
+    return data.member;
+  },
+  async setNotify(serverId: string, notifyMode: ChannelNotifyMode) {
+    const { data } = await api.patch<{ prefs: { serverId: string; notifyMode: string } }>(
+      `/servers/${serverId}/me/notifications`,
+      { notifyMode },
+    );
+    return data.prefs;
+  },
+  async listInvites(serverId: string) {
+    const { data } = await api.get<{ invites: ServerInvite[] }>(`/servers/${serverId}/invites`);
+    return data.invites;
+  },
+  async createInvite(serverId: string, body: z.infer<typeof schemas.createServerInviteSchema>) {
+    const { data } = await api.post<{ invite: ServerInvite }>(`/servers/${serverId}/invites`, body);
+    return data.invite;
+  },
+  async deleteInvite(serverId: string, inviteId: string) {
+    await api.delete(`/servers/${serverId}/invites/${inviteId}`);
+  },
+  async listMembers(serverId: string, opts?: { q?: string; bannedOnly?: boolean }) {
+    const { data } = await api.get<{
+      members: Array<
+        import('@sydt/shared').PublicUser & {
+          nickname: string | null;
+          serverAvatarUrl: string | null;
+          isBanned?: boolean;
+          banReason?: string | null;
+        }
+      >;
+    }>(`/servers/${serverId}/members`, {
+      params: {
+        ...(opts?.q ? { q: opts.q } : {}),
+        ...(opts?.bannedOnly ? { bannedOnly: 'true' } : {}),
+      },
+    });
+    return data.members;
+  },
+  async banMember(serverId: string, userId: string, reason?: string | null) {
+    await api.post(`/servers/${serverId}/members/${userId}/ban`, { reason: reason ?? null });
+  },
+  async unbanMember(serverId: string, userId: string) {
+    await api.delete(`/servers/${serverId}/members/${userId}/ban`);
+  },
+  async getMyTeam(serverId: string) {
+    const { data } = await api.get<{ team: Team | null }>(`/servers/${serverId}/me/team`);
+    return data.team;
+  },
+  async getIntegrations(serverId: string) {
+    const { data } = await api.get<{ integrations: import('@sydt/shared').ServerIntegrations }>(
+      `/servers/${serverId}/integrations`,
+    );
+    return data.integrations;
+  },
+  async patchIntegrations(serverId: string, body: z.infer<typeof schemas.patchServerIntegrationsSchema>) {
+    const { data } = await api.patch<{ integrations: import('@sydt/shared').ServerIntegrations }>(
+      `/servers/${serverId}/integrations`,
+      body,
+    );
+    return data.integrations;
+  },
+  async listWebhooks(serverId: string) {
+    const { data } = await api.get<{ webhooks: import('@sydt/shared').ServerWebhook[] }>(
+      `/servers/${serverId}/webhooks`,
+    );
+    return data.webhooks;
+  },
+  async createWebhook(serverId: string, body: z.infer<typeof schemas.createServerWebhookSchema>) {
+    const { data } = await api.post<{ webhook: import('@sydt/shared').ServerWebhook }>(
+      `/servers/${serverId}/webhooks`,
+      body,
+    );
+    return data.webhook;
+  },
+  async deleteWebhook(serverId: string, webhookId: string) {
+    await api.delete(`/servers/${serverId}/webhooks/${webhookId}`);
+  },
+  async listAnnouncements(serverId: string) {
+    const { data } = await api.get<{ announcements: Announcement[] }>(`/servers/${serverId}/announcements`);
+    return data.announcements;
+  },
+  async createAnnouncement(serverId: string, body: z.infer<typeof schemas.createServerAnnouncementSchema>) {
+    const { data } = await api.post<{ announcement: Announcement }>(`/servers/${serverId}/announcements`, body);
+    return data.announcement;
+  },
+  async listRoles(serverId: string) {
+    const { data } = await api.get<{ roles: import('@sydt/shared').ServerRole[] }>(`/servers/${serverId}/roles`);
+    return data.roles;
+  },
+  async createRole(serverId: string, body: z.infer<typeof schemas.createServerRoleSchema>) {
+    const { data } = await api.post<{ role: import('@sydt/shared').ServerRole }>(`/servers/${serverId}/roles`, body);
+    return data.role;
+  },
+  async updateRole(serverId: string, roleId: string, body: z.infer<typeof schemas.updateServerRoleSchema>) {
+    const { data } = await api.patch<{ role: import('@sydt/shared').ServerRole }>(
+      `/servers/${serverId}/roles/${roleId}`,
+      body,
+    );
+    return data.role;
+  },
+  async deleteRole(serverId: string, roleId: string) {
+    await api.delete(`/servers/${serverId}/roles/${roleId}`);
+  },
+  async getMemberRoles(serverId: string, userId: string) {
+    const { data } = await api.get<{ roleIds: string[] }>(`/servers/${serverId}/members/${userId}/roles`);
+    return data.roleIds;
+  },
+  async setMemberRoles(serverId: string, userId: string, roleIds: string[]) {
+    const { data } = await api.put<{ roleIds: string[] }>(`/servers/${serverId}/members/${userId}/roles`, {
+      roleIds,
+    });
+    return data.roleIds;
+  },
+  async listPinsByCategory(serverId: string) {
+    const { data } = await api.get<{ groups: import('@sydt/shared').PinsByCategoryGroup[] }>(
+      `/servers/${serverId}/pins-by-category`,
+    );
+    return data.groups;
+  },
+  async getMemberRoleGroups(serverId: string) {
+    const { data } = await api.get<{
+      groups: Array<{ role: import('@sydt/shared').ServerRole; members: import('@sydt/shared').PublicUser[] }>;
+      unassigned: import('@sydt/shared').PublicUser[];
+    }>(`/servers/${serverId}/members/by-role`);
+    return data;
+  },
+};
+
+export const channelsApi = {
+  async list(serverId: string) {
+    const { data } = await api.get<ChannelsListPayload>('/channels', { params: { serverId } });
     return data;
   },
   async get(id: string) {
@@ -173,6 +392,12 @@ export const messagesApi = {
     const { data } = await api.get<{ pins: Message[] }>(`/channels/${channelId}/pins`);
     return data.pins;
   },
+  async mentionSuggest(channelId: string, q: string) {
+    const { data } = await api.get<{ users: PublicUser[] }>(`/channels/${channelId}/mention-suggest`, {
+      params: { q: q || undefined, limit: 12 },
+    });
+    return data.users;
+  },
 };
 
 export const challengesApi = {
@@ -252,7 +477,15 @@ export const teamsApi = {
     return data.teams;
   },
   async get(id: string) {
-    const { data } = await api.get<{ team: Team; members: PublicUser[] }>(`/teams/${id}`);
+    const { data } = await api.get<{
+      team: Team;
+      members: PublicUser[];
+      scoreboard?: { totalChallenges: number; totalTeams: number; generatedAt: string };
+    }>(`/teams/${id}`);
+    return data;
+  },
+  async getCtfd(id: string) {
+    const { data } = await api.get<import('@sydt/shared').TeamCtfdLinkDto>(`/teams/${id}/ctfd`);
     return data;
   },
   async createMy(body: z.infer<typeof schemas.createTeamByUserSchema>) {
@@ -269,9 +502,21 @@ export const teamsApi = {
     const { data } = await api.delete<{ team: Team }>('/teams/my/logo');
     return data.team;
   },
+  async leaveServer(serverId: string) {
+    const { data } = await api.delete<{ me: SessionUser }>('/teams/my/membership', {
+      data: { serverId },
+    });
+    return data.me;
+  },
 };
 
 export const usersApi = {
+  async suggest(q: string, opts?: { serverId?: string; limit?: number }) {
+    const { data } = await api.get<{ users: PublicUser[] }>('/users/suggest', {
+      params: { q, serverId: opts?.serverId, limit: opts?.limit ?? 10 },
+    });
+    return data.users;
+  },
   async patchMe(body: z.infer<typeof schemas.updateMeSchema>) {
     const { data } = await api.patch<{ user: SessionUser }>('/users/me', body);
     return data.user;
@@ -455,16 +700,19 @@ export type AdminTeamRow = {
   solveCount: number;
   bloodCount: number;
   captain: PublicUser | null;
-  inviteCode: string;
 };
 
 export const adminTeamsApi = {
-  async list() {
-    const { data } = await api.get<{ teams: AdminTeamRow[] }>('/admin/teams');
+  async list(serverId: string) {
+    const { data } = await api.get<{ teams: AdminTeamRow[] }>('/admin/teams', { params: { serverId } });
     return data.teams;
   },
-  async create(body: z.infer<typeof schemas.adminCreateTeamSchema>) {
-    const { data } = await api.post<{ team: AdminTeamRow }>('/admin/teams', body);
+  async getInvite(teamId: string) {
+    const { data } = await api.get<{ inviteCode: string }>(`/admin/teams/${teamId}/invite`);
+    return data.inviteCode;
+  },
+  async create(serverId: string, body: z.infer<typeof schemas.adminCreateTeamSchema>) {
+    const { data } = await api.post<{ team: AdminTeamRow }>('/admin/teams', body, { params: { serverId } });
     return data.team;
   },
   async update(id: string, body: z.infer<typeof schemas.adminPatchTeamSchema>) {
@@ -495,8 +743,10 @@ export const adminTeamsApi = {
     return data.team;
   },
   async regenerateInvite(teamId: string) {
-    const { data } = await api.post<{ team: AdminTeamRow }>(`/admin/teams/${teamId}/invite/regenerate`);
-    return data.team;
+    const { data } = await api.post<{ team: AdminTeamRow; inviteCode: string }>(
+      `/admin/teams/${teamId}/invite/regenerate`,
+    );
+    return data;
   },
 };
 
@@ -505,9 +755,10 @@ export const adminApi = {
     const { data } = await api.get<AdminRuntimeInfo>('/admin/runtime');
     return data;
   },
-  async importCtfd(file: File) {
+  async importCtfd(file: File, serverId: string) {
     const form = new FormData();
     form.append('file', file);
+    form.append('serverId', serverId);
     const { data } = await api.post<{ ok: boolean; stats: CtfdImportStats }>('/admin/import/ctfd', form, {
       timeout: 120_000,
     });
@@ -562,6 +813,31 @@ export const adminApi = {
   async setBranding(body: z.infer<typeof schemas.patchPlatformBrandingSchema>) {
     const { data } = await api.patch<PlatformBranding>('/admin/settings/branding', body);
     return data;
+  },
+};
+
+export const adminPagesApi = {
+  async list() {
+    const { data } = await api.get<{ pages: PlatformPage[] }>('/admin/pages');
+    return data.pages;
+  },
+  async create(body: z.infer<typeof schemas.createPlatformPageSchema>) {
+    const { data } = await api.post<{ page: PlatformPage }>('/admin/pages', body);
+    return data.page;
+  },
+  async update(id: string, body: z.infer<typeof schemas.updatePlatformPageSchema>) {
+    const { data } = await api.patch<{ page: PlatformPage }>(`/admin/pages/${id}`, body);
+    return data.page;
+  },
+  async remove(id: string) {
+    await api.delete(`/admin/pages/${id}`);
+  },
+};
+
+export const pagesApi = {
+  async getBySlug(slug: string) {
+    const { data } = await api.get<{ page: PlatformPage }>(`/pages/${slug}`);
+    return data.page;
   },
 };
 

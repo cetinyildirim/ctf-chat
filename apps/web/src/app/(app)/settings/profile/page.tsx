@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { TopBar } from '@/components/layout/TopBar';
 import { GlassPanel } from '@/components/common/GlassPanel';
 import { Label } from '@/components/ui/label';
@@ -12,9 +13,10 @@ import { Avatar } from '@/components/ui/avatar';
 import { useI18n } from '@/components/providers/LocaleProvider';
 import { applyDomTheme } from '@/components/providers/ThemeProvider';
 import { useAuthStore } from '@/store/auth';
-import { usersApi } from '@/lib/api/endpoints';
+import { authApi, usersApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/query/client';
 import { unwrapApiError } from '@/lib/api/axios';
+import { disconnectSocket } from '@/lib/socket/client';
 import { toast } from 'sonner';
 import type { SessionUser } from '@sydt/shared';
 import { useQueryClient } from '@tanstack/react-query';
@@ -22,14 +24,30 @@ import { DmConversationsList } from '@/components/direct/DmConversationsList';
 
 export default function ProfileSettingsPage() {
   const { t } = useI18n();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
+  const clearAuth = useAuthStore((s) => s.clear);
   const [displayName, setDisplayName] = React.useState('');
   const [bio, setBio] = React.useState('');
   const [theme, setTheme] = React.useState<'light' | 'dark'>('dark');
   const [defaultNotifyMode, setDefaultNotifyMode] = React.useState<'ALL' | 'MENTIONS_ONLY' | 'NONE'>('ALL');
   const [busy, setBusy] = React.useState(false);
+
+  const logoutAll = async () => {
+    setBusy(true);
+    try {
+      await authApi.logoutAll();
+      toast.success(t.profileLogoutAllOk);
+      disconnectSocket();
+      clearAuth();
+      router.replace('/login');
+    } catch (err) {
+      toast.error(unwrapApiError(err).message || t.profileLogoutAllFail);
+      setBusy(false);
+    }
+  };
 
   React.useEffect(() => {
     if (!user) return;
@@ -59,7 +77,7 @@ export default function ProfileSettingsPage() {
       });
       setUser(next as SessionUser);
       applyDomTheme(next.theme);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.channels });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channelsAll });
       toast.success(t.profileSavedToast);
     } catch (err) {
       toast.error(unwrapApiError(err).message ?? t.profileError);
@@ -204,6 +222,16 @@ export default function ProfileSettingsPage() {
                   {t.save}
                 </Button>
               </form>
+            </GlassPanel>
+
+            <GlassPanel className="space-y-3 p-6">
+              <div>
+                <h2 className="text-sm font-semibold text-fg">{t.profileSecurityTitle}</h2>
+                <p className="mt-1 text-xs text-fg-subtle">{t.profileSecurityLead}</p>
+              </div>
+              <Button type="button" variant="outline" disabled={busy} onClick={() => void logoutAll()}>
+                {t.profileLogoutAll}
+              </Button>
             </GlassPanel>
 
             <Link

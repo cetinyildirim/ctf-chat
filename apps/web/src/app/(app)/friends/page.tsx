@@ -7,12 +7,13 @@ import { TopBar } from '@/components/layout/TopBar';
 import { GlassPanel } from '@/components/common/GlassPanel';
 import { Avatar } from '@/components/ui/avatar';
 import { UserIdentity } from '@/components/common/UserIdentity';
+import { MemberUserSuggest } from '@/components/common/MemberUserSuggest';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { useI18n } from '@/components/providers/LocaleProvider';
 import { useAuthStore } from '@/store/auth';
 import { friendsApi, directApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/query/client';
+import { useServerStore } from '@/store/server';
 import { unwrapApiError } from '@/lib/api/axios';
 import { toast } from 'sonner';
 import type { PublicUser } from '@sydt/shared';
@@ -25,16 +26,6 @@ type Row = {
   addressee: PublicUser;
 };
 
-function FriendPeerRow({ user, children }: { user: PublicUser; children?: React.ReactNode }) {
-  return (
-    <li className="flex flex-wrap items-center gap-3 rounded-lg border border-white/8 bg-white/[0.02] px-3 py-2">
-      <Avatar name={user.displayName} src={user.avatarUrl} size="sm" teamColor={user.team?.color} />
-      <UserIdentity user={user} className="min-w-0 flex-1" />
-      {children}
-    </li>
-  );
-}
-
 function peer(meId: string, row: Row) {
   return row.requesterId === meId ? row.addressee : row.requester;
 }
@@ -45,6 +36,7 @@ export default function FriendsPage() {
   const me = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
   const [username, setUsername] = React.useState('');
+  const activeServerId = useServerStore((s) => s.activeServerId);
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.friends,
@@ -56,13 +48,20 @@ export default function FriendsPage() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.friends });
   }, [queryClient]);
 
-  const reqMut = useMutation({
-    mutationFn: async () => friendsApi.request(username.trim()),
-    onSuccess: () => {
+  const sendRequest = React.useCallback(
+    async (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      await friendsApi.request(trimmed);
       setUsername('');
       toast.success(t.friendsRequestSent);
       invalidate();
     },
+    [invalidate, t],
+  );
+
+  const reqMut = useMutation({
+    mutationFn: () => sendRequest(username),
     onError: (e) => toast.error(unwrapApiError(e).message),
   });
 
@@ -87,7 +86,7 @@ export default function FriendsPage() {
   const dmMut = useMutation({
     mutationFn: async (userId: string) => directApi.open(userId),
     onSuccess: (res) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.channels });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channelsAll });
       router.push(`/channels/${res.channel.id}`);
     },
     onError: (e) => toast.error(unwrapApiError(e).message),
@@ -102,35 +101,41 @@ export default function FriendsPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <TopBar title={t.friendsPageTitle} subtitle={t.friendsPageSubtitle} />
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 md:p-6">
-        <GlassPanel className="flex flex-wrap items-end gap-3 p-4">
-          <div className="min-w-[12rem] flex-1 space-y-1.5">
-            <label htmlFor="friend-user" className="text-xs text-fg-subtle">
-              {t.profileUsernameLabel}
-            </label>
-            <Input
-              id="friend-user"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder={t.friendsUsernamePlaceholder}
-              autoComplete="username"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  reqMut.mutate();
-                }
-              }}
-            />
-          </div>
-          <Button
-            type="button"
-            disabled={!username.trim() || reqMut.isPending}
-            onClick={() => reqMut.mutate()}
-          >
-            {reqMut.isPending ? '…' : t.friendsSendRequest}
-          </Button>
-        </GlassPanel>
 
+      <div className="relative z-20 shrink-0 border-b border-white/5 px-4 pb-4 pt-4 md:px-6">
+        <GlassPanel className="overflow-visible p-4">
+          <p className="mb-3 text-sm text-fg-subtle">{t.friendsSearchLead}</p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[12rem] flex-1">
+              <label className="mb-1.5 block text-xs text-fg-subtle">{t.friendsSearchLabel}</label>
+              {activeServerId ? (
+                <MemberUserSuggest
+                  serverId={activeServerId}
+                  className="w-full"
+                  value={username}
+                  onChange={setUsername}
+                  onPick={(u) => setUsername(u)}
+                  onSelectUser={(u) => {
+                    void sendRequest(u.username).catch((e) => toast.error(unwrapApiError(e).message));
+                  }}
+                  placeholder={t.friendsUsernamePlaceholder}
+                />
+              ) : (
+                <p className="text-sm text-fg-subtle">{t.adminOverviewNoServer}</p>
+              )}
+            </div>
+            <Button
+              type="button"
+              disabled={!username.trim() || reqMut.isPending || !activeServerId}
+              onClick={() => reqMut.mutate()}
+            >
+              {reqMut.isPending ? '…' : t.friendsSendRequest}
+            </Button>
+          </div>
+        </GlassPanel>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 md:p-6">
         {isLoading ? <div className="text-sm text-muted-fg">{t.loading}</div> : null}
 
         <GlassPanel className="p-4">

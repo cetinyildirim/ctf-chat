@@ -18,6 +18,7 @@ model User {
   displayName  String
   passwordHash String
   role         String   @default("TEAM_MEMBER")
+  platformRole String? // staff platform role; kept when user joins a competition team
   status       String   @default("OFFLINE")
   avatarUrl    String?
   bio          String?
@@ -67,6 +68,14 @@ model User {
   reportsReceived  UserReport[] @relation("ReportsReceived")
   reportsReviewed  UserReport[] @relation("ReportsReviewed")
 
+  serverMembers       ServerMember[]
+  serverBansIssued    ServerMember[] @relation("ServerMemberBannedBy")
+  serverTeamMembers   ServerTeamMember[]
+  memberServerRoles   MemberServerRole[]
+  serverInvitesCreated ServerInvite[] @relation("ServerInviteCreator")
+  serverNotifyPrefs   UserServerPreference[]
+  platformPagesAuthored PlatformPage[] @relation("PlatformPageAuthor")
+
   @@index([role])
   @@index([mutedUntil])
   @@index([teamId])
@@ -108,24 +117,47 @@ model RefreshToken {
 
 model Team {
   id        String   @id @default(cuid())
-  slug      String   @unique
+  serverId  String?
+  slug      String
   name      String
   tagline   String?
   color     String   @default("#22d3ee")
   logoUrl   String?
-  inviteCode String  @unique @default(cuid())
+  inviteCode String  @default(cuid())
+  ctfdTeamId Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  server    ChatServer? @relation(fields: [serverId], references: [id], onDelete: Cascade)
 
   captainId String?  @unique
   captain   User?    @relation("TeamCaptain", fields: [captainId], references: [id], onDelete: SetNull)
 
   members   User[]   @relation("TeamMembers")
+  serverMembers ServerTeamMember[]
   solves    Solve[]
   tickets   Ticket[]
   privateChannels Channel[]
   bloodChallenges Challenge[] @relation("FirstBloodTeam")
   hintUnlocks HintUnlock[]
+
+  @@unique([serverId, slug], name: "team_server_slug")
+  @@unique([serverId, inviteCode], name: "team_server_invite")
+  @@index([serverId])
+}
+
+model ServerTeamMember {
+  userId   String
+  serverId String
+  teamId   String
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  server ChatServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  team   Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([userId, serverId])
+  @@index([teamId])
+  @@index([serverId])
 }
 
 model Friendship {
@@ -165,15 +197,146 @@ model UserChannelPreference {
   @@id([userId, channelId])
 }
 
+model ChatServer {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  iconUrl     String?
+  bannerUrl   String?
+  position    Int      @default(0)
+  themePrimary String?
+  themeAccent  String?
+  emailNotifyEnabled Boolean @default(false)
+  emailReplyTo       String?
+  ctfdBaseUrl        String?
+  ctfdAccessToken    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  categories  Category[]
+  channels    Channel[]
+  members     ServerMember[]
+  teams       Team[]
+  teamMembers ServerTeamMember[]
+  invites     ServerInvite[]
+  notifyPrefs UserServerPreference[]
+  announcements Announcement[]
+  webhooks    ServerWebhook[]
+  roles             ServerRole[]
+  memberServerRoles MemberServerRole[]
+
+  @@index([position])
+}
+
+model ServerRole {
+  id              String   @id @default(cuid())
+  serverId        String
+  name            String
+  color           String   @default("#a78bfa")
+  position        Int      @default(0)
+  hoist           Boolean  @default(false)
+  permissionsJson String   @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  server      ChatServer         @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  assignments MemberServerRole[]
+
+  @@unique([serverId, name])
+  @@index([serverId, position])
+}
+
+model MemberServerRole {
+  userId   String
+  serverId String
+  roleId   String
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  server ChatServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  role   ServerRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([serverId, userId])
+  @@index([roleId])
+}
+
+model ServerWebhook {
+  id         String   @id @default(cuid())
+  serverId   String
+  label      String
+  url        String
+  secret     String?
+  eventsJson String   @default("[\"announcement.publish\"]")
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  server ChatServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([serverId])
+}
+
+model ServerMember {
+  userId     String
+  serverId   String
+  nickname   String?
+  avatarUrl  String?
+  joinedAt   DateTime  @default(now())
+  bannedAt   DateTime?
+  bannedById String?
+  banReason  String?
+
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  server   ChatServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  bannedBy User?      @relation("ServerMemberBannedBy", fields: [bannedById], references: [id], onDelete: SetNull)
+
+  @@id([userId, serverId])
+  @@index([serverId])
+  @@index([serverId, bannedAt])
+}
+
+model ServerInvite {
+  id        String    @id @default(cuid())
+  serverId  String
+  code      String    @unique
+  creatorId String
+  channelId String?
+  maxUses   Int?
+  uses      Int       @default(0)
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  server  ChatServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  creator User       @relation("ServerInviteCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  channel Channel?   @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  @@index([serverId])
+  @@index([creatorId])
+}
+
+model UserServerPreference {
+  userId     String
+  serverId   String
+  notifyMode String @default("DEFAULT")
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  server ChatServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@id([userId, serverId])
+}
+
 model Category {
   id       String   @id @default(cuid())
   name     String
   position Int      @default(0)
   staffOnly Boolean @default(false)
   logoUrl  String?
+  serverId String?
+  server   ChatServer? @relation(fields: [serverId], references: [id], onDelete: Cascade)
   channels Channel[]
 
   @@index([position])
+  @@index([serverId, position])
 }
 
 model Channel {
@@ -192,6 +355,9 @@ model Channel {
   categoryId  String?
   category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
+  serverId    String?
+  server      ChatServer? @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
   challengeId String?  @unique
   challenge   Challenge? @relation(fields: [challengeId], references: [id], onDelete: SetNull)
 
@@ -207,9 +373,12 @@ model Channel {
 
   dmParticipants    ChannelDmParticipant[]
   notifyPreferences UserChannelPreference[]
+  serverInvites     ServerInvite[]
+  announcements   Announcement[]
 
   @@index([categoryId, position])
   @@index([type])
+  @@index([serverId, position])
 }
 
 model Message {
@@ -415,10 +584,17 @@ model Announcement {
   severity    String   @default("INFO")
   authorId    String
   author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  serverId    String?
+  server      ChatServer? @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  channelId   String?
+  channel     Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
   scheduledFor DateTime?
+  publishedAt DateTime?
   createdAt   DateTime @default(now())
 
   @@index([createdAt])
+  @@index([serverId, publishedAt])
+  @@index([scheduledFor])
 }
 
 model AppConfig {
@@ -526,4 +702,18 @@ model SurveyAnswer {
 
   @@index([responseId])
   @@index([questionId])
+}
+
+model PlatformPage {
+  id        String   @id @default(cuid())
+  title     String
+  slug      String   @unique
+  content   String   @default("")
+  published Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  authorId  String?
+  author    User?    @relation("PlatformPageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([published])
 }

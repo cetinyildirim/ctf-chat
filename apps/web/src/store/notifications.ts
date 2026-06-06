@@ -7,6 +7,7 @@ export interface Notification {
   title: string;
   body: string;
   href?: string;
+  refId?: string;
   createdAt: string;
   read: boolean;
 }
@@ -18,6 +19,7 @@ interface NotificationState {
   dnd: boolean;
   push: (n: Omit<Notification, 'id' | 'createdAt' | 'read'>) => void;
   markAllRead: () => void;
+  markRead: (id: string) => void;
   remove: (id: string) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setDnd: (dnd: boolean) => void;
@@ -47,6 +49,11 @@ export const useNotificationStore = create<NotificationState>()(
         }),
       markAllRead: () =>
         set((s) => ({ items: s.items.map((i) => ({ ...i, read: true })), unreadCount: 0 })),
+      markRead: (id) =>
+        set((s) => {
+          const items = s.items.map((i) => (i.id === id ? { ...i, read: true } : i));
+          return { items, unreadCount: items.filter((i) => !i.read).length };
+        }),
       remove: (id) =>
         set((s) => {
           const items = s.items.filter((i) => i.id !== id);

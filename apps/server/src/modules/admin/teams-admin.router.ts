@@ -9,9 +9,14 @@ import { BadRequest, NotFound } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
 import { serializeTeam, serializeUser } from '../serializers.js';
 import { emitChannelsRefresh } from '../../realtime/broadcasters.js';
+import { revokeAllRefreshTokensForUsers, revokeAllRefreshTokens } from '../../lib/revoke-sessions.js';
 import { logoImageUpload } from '../../lib/upload.js';
 import { removeLogoFiles, writeLogoFile } from '../../lib/logo-files.js';
 import { provisionTeamRoomsForTeamInCategories } from '../categories/category-team-rooms.service.js';
+import { assignUserToServerTeam, removeUserFromServerTeam } from '../../lib/team-membership.js';
+import { permissionRoleOf } from '../../lib/user-role.js';
+import { isStaff } from '@sydt/shared';
+import { assertPlatformAdminForServer, assertTeamAdminScope } from '../../lib/server-admin-scope.js';
 
 const router: Router = Router();
 
@@ -25,20 +30,25 @@ function slugify(name: string): string {
     .slice(0, 48);
 }
 
-router.get('/', async (_req, res, next) => {
+const serverIdQuery = z.object({ serverId: z.string().cuid() });
+
+router.get('/', validate(serverIdQuery, 'query'), async (req, res, next) => {
   try {
+    const me = req.user!;
+    const { serverId } = req.query as z.infer<typeof serverIdQuery>;
+    await assertPlatformAdminForServer(me.id, serverId, me.role);
     const teams = await prisma.team.findMany({
+      where: { serverId },
       orderBy: { name: 'asc' },
       include: {
-        _count: { select: { members: true } },
+        _count: { select: { serverMembers: true } },
         captain: { include: { team: true } },
       },
     });
     res.json({
       teams: teams.map((t) => ({
-        ...serializeTeam(t, { memberCount: t._count.members }),
+        ...serializeTeam(t, { memberCount: t._count.serverMembers }),
         captain: t.captain ? serializeUser(t.captain) : null,
-        inviteCode: t.inviteCode as string,
       })),
     });
   } catch (err) {
@@ -46,33 +56,37 @@ router.get('/', async (_req, res, next) => {
   }
 });
 
-router.post('/', validate(schemas.adminCreateTeamSchema), async (req, res, next) => {
+router.post('/', validate(serverIdQuery, 'query'), validate(schemas.adminCreateTeamSchema), async (req, res, next) => {
   try {
+    const me = req.user!;
+    const { serverId } = req.query as z.infer<typeof serverIdQuery>;
+    await assertPlatformAdminForServer(me.id, serverId, me.role);
     const data = req.body as z.infer<typeof schemas.adminCreateTeamSchema>;
     const slugBase = slugify(data.name);
     let slug = slugBase || 'team';
     let n = 0;
-    while (await prisma.team.findUnique({ where: { slug } })) {
+    while (await prisma.team.findFirst({ where: { serverId, slug } })) {
       slug = `${slugBase}-${++n}`;
     }
     const team = await prisma.team.create({
       data: {
+        serverId,
         name: data.name.trim(),
         slug,
         tagline: data.tagline?.trim() ? data.tagline.trim() : null,
         color: data.color ?? '#22d3ee',
         inviteCode: `INV-${slugBase.slice(0, 6).toUpperCase().replace(/-/g, 'X')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
       },
-      include: { _count: { select: { members: true } } },
+      include: { _count: { select: { serverMembers: true } } },
     });
-    await provisionTeamRoomsForTeamInCategories(prisma, { id: team.id, name: team.name });
+    await provisionTeamRoomsForTeamInCategories(prisma, { id: team.id, name: team.name, serverId });
     await audit({
       actorId: req.user?.id,
       action: 'team.create',
       target: team.id,
       meta: { name: team.name },
     });
-    emitChannelsRefresh();
+    emitChannelsRefresh(serverId);
     res.status(201).json({ team: serializeTeam(team, { memberCount: 0 }) });
   } catch (err) {
     next(err);
@@ -81,14 +95,33 @@ router.post('/', validate(schemas.adminCreateTeamSchema), async (req, res, next)
 
 const idSchema = z.object({ id: z.string().cuid() });
 
-router.patch('/:id', validate(idSchema, 'params'), validate(schemas.adminPatchTeamSchema), async (req, res, next) => {
+router.get('/:id/invite', validate(idSchema, 'params'), async (req, res, next) => {
   try {
+    const me = req.user!;
     const id = req.params.id;
     if (!id) throw NotFound();
+    await assertTeamAdminScope(me.id, id, me.role);
+    const team = await prisma.team.findUnique({
+      where: { id },
+      select: { inviteCode: true },
+    });
+    if (!team) throw NotFound();
+    res.json({ inviteCode: team.inviteCode as string });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/:id', validate(idSchema, 'params'), validate(schemas.adminPatchTeamSchema), async (req, res, next) => {
+  try {
+    const me = req.user!;
+    const id = req.params.id;
+    if (!id) throw NotFound();
+    await assertTeamAdminScope(me.id, id, me.role);
     const data = req.body as z.infer<typeof schemas.adminPatchTeamSchema>;
     const existing = await prisma.team.findUnique({
       where: { id },
-      include: { _count: { select: { members: true } } },
+      include: { _count: { select: { serverMembers: true } } },
     });
     if (!existing) throw NotFound();
     const patched = await prisma.team.update({
@@ -98,7 +131,7 @@ router.patch('/:id', validate(idSchema, 'params'), validate(schemas.adminPatchTe
         ...(data.tagline !== undefined ? { tagline: data.tagline === null ? null : data.tagline.trim() || null } : {}),
         ...(data.color !== undefined ? { color: data.color } : {}),
       },
-      include: { _count: { select: { members: true } } },
+      include: { _count: { select: { serverMembers: true } } },
     });
     await audit({
       actorId: req.user?.id,
@@ -106,8 +139,8 @@ router.patch('/:id', validate(idSchema, 'params'), validate(schemas.adminPatchTe
       target: id,
       meta: data as Record<string, unknown>,
     });
-    emitChannelsRefresh();
-    res.json({ team: serializeTeam(patched, { memberCount: patched._count.members }) });
+    if (existing.serverId) emitChannelsRefresh(existing.serverId);
+    res.json({ team: serializeTeam(patched, { memberCount: patched._count.serverMembers }) });
   } catch (err) {
     next(err);
   }
@@ -115,10 +148,16 @@ router.patch('/:id', validate(idSchema, 'params'), validate(schemas.adminPatchTe
 
 router.delete('/:id', validate(idSchema, 'params'), async (req, res, next) => {
   try {
+    const me = req.user!;
     const id = req.params.id;
     if (!id) throw NotFound();
+    const { serverId } = await assertTeamAdminScope(me.id, id, me.role);
     const existing = await prisma.team.findUnique({ where: { id } });
     if (!existing) throw NotFound();
+
+    const memberIds = (
+      await prisma.user.findMany({ where: { teamId: id }, select: { id: true } })
+    ).map((u) => u.id);
 
     await prisma.channel.deleteMany({ where: { teamId: id, type: 'TEAM_PRIVATE' } });
     await prisma.user.updateMany({
@@ -131,8 +170,9 @@ router.delete('/:id', validate(idSchema, 'params'), async (req, res, next) => {
       data: { captainId: null },
     });
     await prisma.team.delete({ where: { id } });
+    await revokeAllRefreshTokensForUsers(memberIds);
     await audit({ actorId: req.user?.id, action: 'team.delete', target: id });
-    emitChannelsRefresh();
+    emitChannelsRefresh(serverId);
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -141,16 +181,16 @@ router.delete('/:id', validate(idSchema, 'params'), async (req, res, next) => {
 
 router.get('/:id/members', validate(idSchema, 'params'), async (req, res, next) => {
   try {
+    const me = req.user!;
     const id = req.params.id;
     if (!id) throw NotFound();
-    const team = await prisma.team.findUnique({ where: { id } });
-    if (!team) throw NotFound();
-    const members = await prisma.user.findMany({
+    await assertTeamAdminScope(me.id, id, me.role);
+    const members = await prisma.serverTeamMember.findMany({
       where: { teamId: id },
-      include: { team: true },
-      orderBy: { username: 'asc' },
+      include: { user: { include: { team: true } } },
+      orderBy: { user: { username: 'asc' } },
     });
-    res.json({ users: members.map(serializeUser) });
+    res.json({ users: members.map((m) => serializeUser(m.user)) });
   } catch (err) {
     next(err);
   }
@@ -170,33 +210,40 @@ async function resolveMemberUserId(body: z.infer<typeof schemas.adminAssignMembe
 
 router.post('/:id/members', validate(idSchema, 'params'), validate(schemas.adminAssignMemberSchema), async (req, res, next) => {
   try {
+    const me = req.user!;
     const teamId = req.params.id;
     if (!teamId) throw NotFound();
+    const { serverId } = await assertTeamAdminScope(me.id, teamId, me.role);
     const userId = await resolveMemberUserId(req.body as z.infer<typeof schemas.adminAssignMemberSchema>);
     const team = await prisma.team.findUnique({ where: { id: teamId } });
     if (!team) throw NotFound();
     const candidate = await prisma.user.findUnique({ where: { id: userId } });
     if (!candidate) throw NotFound();
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        teamId,
-        ...(candidate.role === Role.OBSERVER || candidate.role === Role.SPECTATOR
-          ? { role: Role.TEAM_MEMBER }
-          : {}),
-      },
+    await assignUserToServerTeam(prisma, {
+      userId,
+      serverId,
+      teamId,
+      asCaptain: false,
     });
+    if (candidate.role === Role.OBSERVER || candidate.role === Role.SPECTATOR) {
+      await prisma.user.update({ where: { id: userId }, data: { role: Role.TEAM_MEMBER } });
+      await revokeAllRefreshTokens(userId);
+    }
     await audit({
       actorId: req.user?.id,
       action: 'team.member_add',
       target: teamId,
       meta: { userId, username: candidate.username },
     });
-    emitChannelsRefresh();
+    emitChannelsRefresh(serverId);
 
-    const members = await prisma.user.findMany({ where: { teamId }, include: { team: true }, orderBy: { username: 'asc' } });
-    res.json({ users: members.map(serializeUser) });
+    const members = await prisma.serverTeamMember.findMany({
+      where: { teamId },
+      include: { user: { include: { team: true } } },
+      orderBy: { user: { username: 'asc' } },
+    });
+    res.json({ users: members.map((m) => serializeUser(m.user)) });
   } catch (err) {
     next(err);
   }
@@ -209,35 +256,41 @@ const memberParamsSchema = z.object({
 
 router.delete('/:id/members/:userId', validate(memberParamsSchema, 'params'), async (req, res, next) => {
   try {
+    const me = req.user!;
     const teamId = req.params.id;
     const userId = req.params.userId;
     if (!teamId || !userId) throw NotFound();
-    const team = await prisma.team.findUnique({ where: { id: teamId } });
-    if (!team) throw NotFound();
-    const u = await prisma.user.findUnique({ where: { id: userId } });
-    if (!u || u.teamId !== teamId) throw BadRequest('User is not on this team');
+    const { serverId } = await assertTeamAdminScope(me.id, teamId, me.role);
+    const membership = await prisma.serverTeamMember.findUnique({
+      where: { userId_serverId: { userId, serverId } },
+    });
+    if (!membership || membership.teamId !== teamId) throw BadRequest('User is not on this team');
 
-    if (team.captainId === userId) {
-      await prisma.team.update({ where: { id: teamId }, data: { captainId: null } });
+    const u = await prisma.user.findUnique({ where: { id: userId } });
+    if (!u) throw NotFound();
+
+    if (teamId) {
+      const team = await prisma.team.findUnique({ where: { id: teamId } });
+      if (team?.captainId === userId) {
+        await prisma.team.update({ where: { id: teamId }, data: { captainId: null } });
+      }
     }
 
-    await prisma.user.updateMany({
-      where: { id: userId },
-      data: {
-        teamId: null,
-        ...(u.role === Role.TEAM_CAPTAIN ? { role: Role.TEAM_MEMBER } : {}),
-      },
-    });
+    await removeUserFromServerTeam(prisma, userId, serverId);
     await audit({
       actorId: req.user?.id,
       action: 'team.member_remove',
       target: teamId,
       meta: { userId, username: u.username },
     });
-    emitChannelsRefresh();
+    emitChannelsRefresh(serverId);
 
-    const members = await prisma.user.findMany({ where: { teamId }, include: { team: true }, orderBy: { username: 'asc' } });
-    res.json({ users: members.map(serializeUser) });
+    const members = await prisma.serverTeamMember.findMany({
+      where: { teamId },
+      include: { user: { include: { team: true } } },
+      orderBy: { user: { username: 'asc' } },
+    });
+    res.json({ users: members.map((m) => serializeUser(m.user)) });
   } catch (err) {
     next(err);
   }
@@ -249,12 +302,14 @@ router.patch(
   validate(schemas.adminSetCaptainSchema),
   async (req, res, next) => {
     try {
+      const me = req.user!;
       const teamId = req.params.id;
       if (!teamId) throw NotFound();
+      const { serverId } = await assertTeamAdminScope(me.id, teamId, me.role);
       const data = req.body as z.infer<typeof schemas.adminSetCaptainSchema>;
       const team = await prisma.team.findUnique({
         where: { id: teamId },
-        include: { _count: { select: { members: true } } },
+        include: { _count: { select: { serverMembers: true } } },
       });
       if (!team) throw NotFound();
 
@@ -263,34 +318,43 @@ router.patch(
 
       if (!nextCaptainId) {
         if (prevCaptainId) {
-          await prisma.user.updateMany({
-            where: { id: prevCaptainId, role: Role.TEAM_CAPTAIN },
-            data: { role: Role.TEAM_MEMBER },
-          });
+          const prev = await prisma.user.findUnique({ where: { id: prevCaptainId } });
+          if (prev && !isStaff(permissionRoleOf(prev))) {
+            await prisma.user.update({
+              where: { id: prevCaptainId },
+              data: { role: Role.TEAM_MEMBER },
+            });
+          }
         }
         await prisma.team.update({ where: { id: teamId }, data: { captainId: null } });
-        emitChannelsRefresh();
+        if (prevCaptainId) await revokeAllRefreshTokens(prevCaptainId);
+        emitChannelsRefresh(serverId);
         const t2 = await prisma.team.findUniqueOrThrow({
           where: { id: teamId },
-          include: { _count: { select: { members: true } } },
+          include: { _count: { select: { serverMembers: true } } },
         });
-        return res.json({ team: serializeTeam(t2, { memberCount: t2._count.members }) });
+        return res.json({ team: serializeTeam(t2, { memberCount: t2._count.serverMembers }) });
       }
 
       const newCap = await prisma.user.findUnique({ where: { id: nextCaptainId } });
       if (!newCap || newCap.teamId !== teamId) throw BadRequest('Captain must belong to team');
 
       if (prevCaptainId && prevCaptainId !== nextCaptainId) {
-        await prisma.user.updateMany({
-          where: { id: prevCaptainId, role: Role.TEAM_CAPTAIN },
-          data: { role: Role.TEAM_MEMBER },
-        });
+        const prev = await prisma.user.findUnique({ where: { id: prevCaptainId } });
+        if (prev && !isStaff(permissionRoleOf(prev))) {
+          await prisma.user.update({
+            where: { id: prevCaptainId },
+            data: { role: Role.TEAM_MEMBER },
+          });
+        }
       }
 
-      await prisma.user.updateMany({
-        where: { id: nextCaptainId },
-        data: { role: Role.TEAM_CAPTAIN },
-      });
+      if (!isStaff(permissionRoleOf(newCap))) {
+        await prisma.user.update({
+          where: { id: nextCaptainId },
+          data: { role: Role.TEAM_CAPTAIN },
+        });
+      }
       await prisma.team.update({
         where: { id: teamId },
         data: { captainId: nextCaptainId },
@@ -301,12 +365,14 @@ router.patch(
         target: teamId,
         meta: { captainId: nextCaptainId },
       });
-      emitChannelsRefresh();
+      const revokeIds = [prevCaptainId, nextCaptainId].filter((x): x is string => !!x);
+      await revokeAllRefreshTokensForUsers(revokeIds);
+      emitChannelsRefresh(serverId);
       const t2 = await prisma.team.findUniqueOrThrow({
         where: { id: teamId },
-        include: { _count: { select: { members: true } } },
+        include: { _count: { select: { serverMembers: true } } },
       });
-      res.json({ team: serializeTeam(t2, { memberCount: t2._count.members }) });
+      res.json({ team: serializeTeam(t2, { memberCount: t2._count.serverMembers }) });
     } catch (err) {
       next(err);
     }
@@ -315,12 +381,18 @@ router.patch(
 
 router.post('/:id/invite/regenerate', validate(idSchema, 'params'), async (req, res, next) => {
   try {
+    const me = req.user!;
     const teamId = req.params.id;
     if (!teamId) throw NotFound();
+    const { serverId } = await assertTeamAdminScope(me.id, teamId, me.role);
+    const existing = await prisma.team.findUnique({ where: { id: teamId } });
+    if (!existing) throw NotFound();
     let inviteCode = '';
     for (let attempt = 0; attempt < 20; attempt++) {
       inviteCode = `INV-${crypto.randomBytes(3).toString('hex').toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
-      const clash = await prisma.team.findUnique({ where: { inviteCode } });
+      const clash = await prisma.team.findFirst({
+        where: { serverId, inviteCode },
+      });
       if (!clash) break;
       inviteCode = '';
     }
@@ -329,10 +401,13 @@ router.post('/:id/invite/regenerate', validate(idSchema, 'params'), async (req, 
     const updated = await prisma.team.update({
       where: { id: teamId },
       data: { inviteCode },
-      include: { _count: { select: { members: true } } },
+      include: { _count: { select: { serverMembers: true } } },
     });
     await audit({ actorId: req.user?.id, action: 'team.invite_regen', target: teamId });
-    res.json({ team: serializeTeam(updated, { memberCount: updated._count.members }) });
+    res.json({
+      team: serializeTeam(updated, { memberCount: updated._count.serverMembers }),
+      inviteCode,
+    });
   } catch (err) {
     next(err);
   }
@@ -340,23 +415,25 @@ router.post('/:id/invite/regenerate', validate(idSchema, 'params'), async (req, 
 
 router.post('/:id/logo', validate(idSchema, 'params'), logoImageUpload.single('file'), async (req, res, next) => {
   try {
+    const me = req.user!;
     const id = req.params.id;
     if (!id) throw NotFound();
+    await assertTeamAdminScope(me.id, id, me.role);
     const file = req.file;
     if (!file?.buffer?.length) {
       res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Image file required' } });
       return;
     }
-    const team = await prisma.team.findUnique({ where: { id }, include: { _count: { select: { members: true } } } });
+    const team = await prisma.team.findUnique({ where: { id }, include: { _count: { select: { serverMembers: true } } } });
     if (!team) throw NotFound();
     const url = await writeLogoFile('team', id, file.buffer, file.originalname);
     const updated = await prisma.team.update({
       where: { id },
       data: { logoUrl: url },
-      include: { _count: { select: { members: true } } },
+      include: { _count: { select: { serverMembers: true } } },
     });
     await audit({ actorId: req.user?.id, action: 'team.logo', target: id, meta: { name: team.name } });
-    res.json({ team: { ...serializeTeam(updated, { memberCount: updated._count.members }), inviteCode: updated.inviteCode } });
+    res.json({ team: serializeTeam(updated, { memberCount: updated._count.serverMembers }) });
   } catch (err) {
     next(err);
   }
@@ -364,18 +441,20 @@ router.post('/:id/logo', validate(idSchema, 'params'), logoImageUpload.single('f
 
 router.delete('/:id/logo', validate(idSchema, 'params'), async (req, res, next) => {
   try {
+    const me = req.user!;
     const id = req.params.id;
     if (!id) throw NotFound();
-    const team = await prisma.team.findUnique({ where: { id }, include: { _count: { select: { members: true } } } });
+    await assertTeamAdminScope(me.id, id, me.role);
+    const team = await prisma.team.findUnique({ where: { id }, include: { _count: { select: { serverMembers: true } } } });
     if (!team) throw NotFound();
     await removeLogoFiles('team', id);
     const updated = await prisma.team.update({
       where: { id },
       data: { logoUrl: null },
-      include: { _count: { select: { members: true } } },
+      include: { _count: { select: { serverMembers: true } } },
     });
     await audit({ actorId: req.user?.id, action: 'team.logo.clear', target: id });
-    res.json({ team: { ...serializeTeam(updated, { memberCount: updated._count.members }), inviteCode: updated.inviteCode } });
+    res.json({ team: serializeTeam(updated, { memberCount: updated._count.serverMembers }) });
   } catch (err) {
     next(err);
   }

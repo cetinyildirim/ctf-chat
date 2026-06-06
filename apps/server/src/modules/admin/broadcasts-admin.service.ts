@@ -2,7 +2,7 @@ import { prisma } from '../../prisma.js';
 import { ensureDirectChannelForBroadcast } from '../direct/direct.service.js';
 import { serializeMessage } from '../serializers.js';
 import { emitMessageNew } from '../../realtime/broadcasters.js';
-import { emitAnnouncement } from '../../realtime/broadcasters.js';
+import { publishAnnouncementById } from '../../lib/announcement-publish.js';
 import { serializeAnnouncement } from '../serializers.js';
 
 const messageInclude = {
@@ -65,8 +65,7 @@ export async function sendAdminPlatformAnnouncement(
     },
     include: { author: { include: { team: true } } },
   });
-  const serialized = serializeAnnouncement(announcement);
-  emitAnnouncement(serialized);
+  const serialized = (await publishAnnouncementById(announcement.id)) ?? serializeAnnouncement(announcement);
 
   const userCount = await prisma.user.count({ where: { isBanned: false } });
   const record = await prisma.adminBroadcast.create({

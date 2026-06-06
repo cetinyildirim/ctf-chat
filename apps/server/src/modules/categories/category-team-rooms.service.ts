@@ -18,7 +18,18 @@ function slugifySegment(name: string): string {
 export async function provisionTeamRoomsForCategory(db: DbClient, category: { id: string; name: string; staffOnly: boolean }) {
   if (category.staffOnly) return;
 
-  const teams = await db.team.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+  const catServerId =
+    (
+      await db.category.findUnique({
+        where: { id: category.id },
+        select: { serverId: true },
+      })
+    )?.serverId ?? null;
+  const teams = await db.team.findMany({
+    where: catServerId ? { serverId: catServerId } : undefined,
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
   let nextPos =
     (
       await db.channel.findFirst({
@@ -54,9 +65,14 @@ export async function provisionTeamRoomsForCategory(db: DbClient, category: { id
   }
 }
 
-/** After creating a single team via admin: add TEAM_PRIVATE slots for all non-staff categories. */
-export async function provisionTeamRoomsForTeamInCategories(db: DbClient, team: { id: string; name: string }) {
-  const cats = await db.category.findMany({ where: { staffOnly: false } });
+/** After creating a single team via admin: add TEAM_PRIVATE slots for all non-staff categories on the same server. */
+export async function provisionTeamRoomsForTeamInCategories(
+  db: DbClient,
+  team: { id: string; name: string; serverId: string },
+) {
+  const cats = await db.category.findMany({
+    where: { staffOnly: false, serverId: team.serverId },
+  });
   for (const category of cats) {
     let nextPos =
       (

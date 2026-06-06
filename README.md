@@ -130,14 +130,31 @@ ACCESS_TOKEN_TTL=900
 REFRESH_TOKEN_TTL=2592000
 CORS_ORIGIN=http://localhost:3100
 COOKIE_SECURE=false       # set to true behind HTTPS
+SERVER_INVITE_TTL_DAYS=7  # default expiry for new server invites
 LOG_LEVEL=info
 ```
 
-Web reads `apps/web/.env.local`:
+Web reads `apps/web/.env.local` (see `apps/web/.env.local.example`):
 
 ```env
 NEXT_PUBLIC_API_ORIGIN=http://localhost:4000
+# Must match apps/server JWT_ACCESS_SECRET for Edge middleware JWT checks
+JWT_ACCESS_SECRET=...
 ```
+
+### Production security checklist
+
+When deploying behind HTTPS, set these on the API (`apps/server/.env`):
+
+| Variable | Production value | Notes |
+| -------- | ---------------- | ----- |
+| `NODE_ENV` | `production` | Enables strict env guards |
+| `COOKIE_SECURE` | `true` | **Required** in production — cookies only over HTTPS |
+| `CORS_ORIGIN` | exact web origin(s) | Comma-separated; wildcards (`*`) are rejected |
+| `ALLOW_BEARER_AUTH` | omit or `false` | Prefer cookie-only auth; Bearer is dev-only by default |
+| `JWT_*_SECRET` | strong random strings | ≥ 32 chars, unique per secret |
+
+The web client sends a double-submit CSRF token (`X-CSRF-Token`) on mutating requests. Login/register pages bootstrap the token via `GET /api/auth/csrf` before the first POST. Helmet CSP headers are enabled on both API and Next.js.
 
 ---
 

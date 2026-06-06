@@ -11,3 +11,7 @@ export * from './announcement';
 export * from './survey';
 export * from './platform';
 export * from './report';
+export * from './server';
+export * from './server-integrations';
+export * from './server-role';
+export * from './platform-page';

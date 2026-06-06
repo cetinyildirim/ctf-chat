@@ -211,3 +211,13 @@ export function isAdmin(role: Role | null | undefined): boolean {
   if (!role) return false;
   return ROLE_RANK[role] >= ROLE_RANK.COMP_ADMIN;
 }
+
+/** Role used for permission checks; staff platform role is never downgraded by team membership */
+export function effectivePermissionRole(user: {
+  role: Role;
+  platformRole?: Role | null;
+}): Role {
+  if (user.platformRole && isStaff(user.platformRole)) return user.platformRole;
+  if (isStaff(user.role)) return user.role;
+  return user.role;
+}

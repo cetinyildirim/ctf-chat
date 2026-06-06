@@ -6,6 +6,8 @@ import { requireAuth } from '../../middleware/auth.js';
 import { NotFound } from '../../lib/http-error.js';
 import { loadChannel, assertCanAccessChannel } from '../messages/access.js';
 import { absolutePathForStoredAttachment } from '../../lib/upload.js';
+import { isInlineSafeMime } from '../../lib/allowed-upload.js';
+import { fileDownloadLimiter } from '../../middleware/ratelimit.js';
 
 const router: Router = Router();
 
@@ -14,7 +16,7 @@ router.use(requireAuth);
 /**
  * Authenticated download of a message attachment. URL is stored on Attachment as `/api/files/:id`.
  */
-router.get('/:attachmentId', async (req, res, next) => {
+router.get('/:attachmentId', fileDownloadLimiter, async (req, res, next) => {
   try {
     const attachmentId = req.params.attachmentId;
     if (!attachmentId) throw NotFound();
@@ -38,7 +40,8 @@ router.get('/:attachmentId', async (req, res, next) => {
     }
 
     res.setHeader('Content-Type', att.mimeType || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(att.name)}"`);
+    const disposition = isInlineSafeMime(att.mimeType) ? 'inline' : 'attachment';
+    res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(att.name)}"`);
     createReadStream(abs).pipe(res);
   } catch (err) {
     next(err);

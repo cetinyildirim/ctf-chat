@@ -15,6 +15,7 @@
     "db:generate": "pnpm --filter @sydt/server db:generate",
     "db:push": "pnpm --filter @sydt/server db:push",
     "seed": "pnpm --filter @sydt/server seed",
+    "security:regression": "pnpm --filter @sydt/server security:regression",
     "lint": "pnpm -r --parallel lint",
     "typecheck": "pnpm -r --parallel typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\""

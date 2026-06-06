@@ -10,12 +10,12 @@ import { ChannelNotifyContextMenu } from '@/components/channels/ChannelNotifyCon
 import { channelsApi, usersApi } from '@/lib/api/endpoints';
 import { usePresenceStore } from '@/store/presence';
 import { queryKeys } from '@/lib/query/client';
-import { Avatar } from '@/components/ui/avatar';
-import { StatusDot } from '@/components/common/StatusDot';
+import { AvatarWithStatus } from '@/components/common/AvatarWithStatus';
 import { UserProfileTrigger } from '@/components/users/UserProfileTrigger';
 import { useLivePresence } from '@/lib/presence/use-live-presence';
 import { useI18n } from '@/components/providers/LocaleProvider';
 import { useAuthStore } from '@/store/auth';
+import { useServerStore } from '@/store/server';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/common/Skeleton';
 
@@ -46,20 +46,19 @@ function DmRow({
               : 'hover:border-white/8 hover:bg-white/[0.04]',
           )}
         >
-          <div className="relative shrink-0">
-            {peer ? (
-              <UserProfileTrigger userId={peer.id}>
-                <Avatar name={peer.displayName} src={peer.avatarUrl} size="sm" teamColor={peer.team?.color} />
-              </UserProfileTrigger>
-            ) : (
-              <Avatar name="?" src={null} size="sm" />
-            )}
-            {peer ? (
-              <span className="absolute -bottom-0.5 -right-0.5 ring-2 ring-bg-elev rounded-full">
-                <StatusDot status={status} />
-              </span>
-            ) : null}
-          </div>
+          {peer ? (
+            <UserProfileTrigger userId={peer.id} className="inline-flex shrink-0">
+              <AvatarWithStatus
+                name={peer.displayName}
+                src={peer.avatarUrl}
+                status={status}
+                size="sm"
+                teamColor={peer.team?.color}
+              />
+            </UserProfileTrigger>
+          ) : (
+            <AvatarWithStatus name="?" src={null} status="OFFLINE" size="sm" />
+          )}
           <div className="min-w-0 flex-1">
             <div className="truncate font-medium text-fg">{label}</div>
             {peer ? (
@@ -77,20 +76,21 @@ export function DmConversationsList({ className }: { className?: string }) {
   const user = useAuthStore((s) => s.user);
   const pathname = usePathname() ?? '';
   const queryClient = useQueryClient();
+  const activeServerId = useServerStore((s) => s.activeServerId);
   const activeChannelId = pathname.startsWith('/channels/') ? pathname.split('/')[2] : null;
 
   const notifyMut = useMutation({
     mutationFn: ({ channelId, mode }: { channelId: string; mode: ChannelNotifyMode }) =>
       channelsApi.setChannelNotify(channelId, mode),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.channels }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.channelsAll }),
   });
 
   const setPresences = usePresenceStore((s) => s.setPresences);
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.channels,
-    queryFn: channelsApi.list,
-    enabled: !!user,
+    queryKey: queryKeys.channels(activeServerId ?? ''),
+    queryFn: () => channelsApi.list(activeServerId!),
+    enabled: !!user && !!activeServerId,
     staleTime: 30_000,
   });
 

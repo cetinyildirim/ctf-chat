@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { Check } from 'lucide-react';
+import { Check, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
@@ -100,6 +100,43 @@ const DropdownMenuCheckboxItem = React.forwardRef<
 ));
 DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displayName;
 
+const DropdownMenuSubTrigger = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger> & { inset?: boolean }
+>(({ className, inset, children, ...props }, ref) => (
+  <DropdownMenuPrimitive.SubTrigger
+    ref={ref}
+    className={cn(
+      'flex cursor-pointer select-none items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-fg outline-none',
+      'data-[highlighted]:bg-accent-cyan/12 data-[highlighted]:text-accent-cyan data-[state=open]:bg-accent-cyan/12',
+      'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      inset && 'pl-8',
+      className,
+    )}
+    {...props}
+  >
+    {children}
+    <ChevronRight className="ml-auto h-4 w-4 shrink-0" />
+  </DropdownMenuPrimitive.SubTrigger>
+));
+DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayName;
+
+const DropdownMenuSubContent = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.SubContent
+    ref={ref}
+    className={cn(
+      'z-50 min-w-[12rem] glass-strong rounded-lg p-1 shadow-glass outline-none',
+      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+      className,
+    )}
+    {...props}
+  />
+));
+DropdownMenuSubContent.displayName = DropdownMenuPrimitive.SubContent.displayName;
+
 export {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -112,4 +149,6 @@ export {
   DropdownMenuSub,
   DropdownMenuRadioGroup,
   DropdownMenuCheckboxItem,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 };

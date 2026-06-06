@@ -10,6 +10,12 @@ export const api: AxiosInstance = axios.create({
 
 let refreshInFlight: Promise<void> | null = null;
 
+function readCsrfCookie(): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(/(?:^|;\s*)sydt_csrf=([^;]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
 async function refresh(): Promise<void> {
   if (!refreshInFlight) {
     refreshInFlight = axios
@@ -24,6 +30,17 @@ async function refresh(): Promise<void> {
   }
   return refreshInFlight;
 }
+
+api.interceptors.request.use((config) => {
+  const method = config.method?.toLowerCase();
+  if (method && !['get', 'head', 'options'].includes(method)) {
+    const csrf = readCsrfCookie();
+    if (csrf) {
+      config.headers.set('X-CSRF-Token', csrf);
+    }
+  }
+  return config;
+});
 
 api.interceptors.response.use(
   (res) => res,

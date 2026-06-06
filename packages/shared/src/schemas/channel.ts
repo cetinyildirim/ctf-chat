@@ -9,6 +9,7 @@ export const createChannelSchema = z.object({
   topic: z.string().max(200).optional().nullable(),
   type: channelTypeEnum,
   categoryId: z.string().cuid().optional().nullable(),
+  serverId: z.string().cuid().optional(),
   isPrivate: z.boolean().default(false),
   iconKey: z.string().max(64).optional().nullable(),
 });

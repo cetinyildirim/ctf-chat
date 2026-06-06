@@ -51,6 +51,35 @@ export function channelCategoryBadgeDataUrl(categoryLabel: string, categoryId: s
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
+/** Fallback circular server icon when no custom logo is uploaded. */
+export function serverBadgeDataUrl(serverName: string, serverId: string, size = 64): string {
+  const h = hueFromSeed(serverId);
+  const label = truncate(serverName || '?', 12);
+  const fill = `hsl(${h}, 78%, 52%)`;
+  const fillEdge = `hsl(${h}, 82%, 38%)`;
+  const fs = label.length > 8 ? 8 : label.length > 5 ? 9.5 : 11;
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${fill}"/>
+      <stop offset="100%" stop-color="${fillEdge}"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="32" fill="url(#g)"/>
+  <text x="32" y="36" text-anchor="middle" fill="rgba(255,255,255,.98)" font-family="system-ui,sans-serif" font-size="${fs}" font-weight="700">${escXml(label)}</text>
+</svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+export function resolveServerIconSrc(server: { id: string; name: string; iconUrl?: string | null }): string {
+  if (server.iconUrl) {
+    if (server.iconUrl.startsWith('/')) return server.iconUrl;
+    return server.iconUrl;
+  }
+  return serverBadgeDataUrl(server.name, server.id);
+}
+
 /** Category group header without custom upload. */
 export function categoryHeaderBadgeDataUrl(name: string, categoryId: string, size = 64): string {
   const idForHue = categoryId === 'uncategorized' ? null : categoryId;

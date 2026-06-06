@@ -15,9 +15,14 @@ const envSchema = z.object({
     .union([z.literal('true'), z.literal('false'), z.boolean()])
     .transform((v) => v === true || v === 'true')
     .default(false),
+  ALLOW_BEARER_AUTH: z
+    .union([z.literal('true'), z.literal('false'), z.boolean()])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === true || v === 'true')),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   UPLOAD_DIR: z.string().default('uploads'),
   UPLOAD_MAX_MB: z.coerce.number().positive().max(500).default(100),
+  SERVER_INVITE_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(7),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -31,3 +36,20 @@ export const env = parsed.data;
 
 export const isProd = env.NODE_ENV === 'production';
 export const isDev = env.NODE_ENV === 'development';
+
+/** Bearer auth disabled in production unless explicitly enabled. */
+export const allowBearerAuth = env.ALLOW_BEARER_AUTH ?? !isProd;
+
+if (isProd) {
+  if (!env.COOKIE_SECURE) {
+    console.error('COOKIE_SECURE must be true in production');
+    process.exit(1);
+  }
+  if (env.CORS_ORIGIN.split(',').some((o) => o.trim() === '*')) {
+    console.error('Wildcard CORS_ORIGIN is not allowed in production');
+    process.exit(1);
+  }
+  if (env.ALLOW_BEARER_AUTH === true) {
+    console.warn('ALLOW_BEARER_AUTH is enabled in production — prefer cookie-only auth');
+  }
+}

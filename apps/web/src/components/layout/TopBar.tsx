@@ -10,6 +10,7 @@ import {
   VolumeX,
   Moon,
   LogOut,
+  ShieldOff,
   Sparkles,
   Activity,
 } from 'lucide-react';
@@ -57,6 +58,18 @@ export function TopBar({ title, subtitle, right }: { title?: React.ReactNode; su
       await authApi.logout();
     } catch {
       /* ignore */
+    }
+    disconnectSocket();
+    clearAuth();
+    router.replace('/login');
+  };
+
+  const logoutAll = async () => {
+    try {
+      await authApi.logoutAll();
+      toast.success(t.logoutAllDevicesOk);
+    } catch {
+      toast.error(t.logoutAllDevicesFail);
     }
     disconnectSocket();
     clearAuth();
@@ -149,6 +162,11 @@ export function TopBar({ title, subtitle, right }: { title?: React.ReactNode; su
               ))
             )}
           </div>
+          <div className="border-t border-white/8 px-3 py-2">
+            <Link href="/notifications" className="text-xs font-medium text-accent-cyan hover:underline">
+              {t.notificationsViewAll}
+            </Link>
+          </div>
           <div className="flex items-center justify-between gap-2 border-t border-white/8 px-3 py-2 text-[11px]">
             <button onClick={() => setSoundEnabled(!soundEnabled)} className="inline-flex items-center gap-1 text-fg-subtle hover:text-fg">
               {soundEnabled ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
@@ -201,6 +219,9 @@ export function TopBar({ title, subtitle, right }: { title?: React.ReactNode; su
               <Moon className="h-3.5 w-3.5" /> {dnd ? t.dndMenuDisable : t.dndMenuEnable}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={logoutAll} className="text-accent-rose">
+              <ShieldOff className="h-3.5 w-3.5" /> {t.logoutAllDevices}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={logout} className="text-accent-rose">
               <LogOut className="h-3.5 w-3.5" /> {t.signOut}
             </DropdownMenuItem>

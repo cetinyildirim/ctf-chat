@@ -14,6 +14,9 @@ import {
   assignUserAsTeamCaptain,
   createTeamWithSlug,
 } from '../../lib/team-create.js';
+import { removeUserFromServerTeam } from '../../lib/team-membership.js';
+import { buildSessionUser } from '../../lib/session-user.js';
+import { requireServerMember } from '../../lib/server-membership.js';
 
 const router: Router = Router();
 
@@ -25,14 +28,19 @@ router.post('/', validate(schemas.createTeamByUserSchema), async (req, res, next
     const userId = req.user!.id;
     const me = await prisma.user.findUnique({ where: { id: userId } });
     if (!me) throw NotFound();
-    if (me.teamId) throw BadRequest('You are already on a team');
+    await requireServerMember(userId, data.serverId);
+    const existingOnServer = await prisma.serverTeamMember.findUnique({
+      where: { userId_serverId: { userId, serverId: data.serverId } },
+    });
+    if (existingOnServer) throw BadRequest('You are already on a team in this server');
 
     const team = await createTeamWithSlug(prisma, {
+      serverId: data.serverId,
       name: data.name,
       tagline: data.tagline,
       color: data.color,
     });
-    await assignUserAsTeamCaptain(prisma, team.id, userId);
+    await assignUserAsTeamCaptain(prisma, team.id, userId, data.serverId);
 
     await audit({
       actorId: userId,
@@ -40,7 +48,7 @@ router.post('/', validate(schemas.createTeamByUserSchema), async (req, res, next
       target: team.id,
       meta: { name: team.name, byUser: true },
     });
-    emitChannelsRefresh();
+    emitChannelsRefresh(data.serverId);
 
     const fresh = await prisma.team.findUniqueOrThrow({
       where: { id: team.id },
@@ -48,13 +56,21 @@ router.post('/', validate(schemas.createTeamByUserSchema), async (req, res, next
     });
     res.status(201).json({
       team: serializeTeam(fresh, { memberCount: fresh._count.members }),
-      me: serializeUser(
-        await prisma.user.findUniqueOrThrow({
-          where: { id: userId },
-          include: { team: true },
-        }),
-      ),
+      me: await buildSessionUser(userId),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/membership', validate(schemas.leaveServerTeamSchema), async (req, res, next) => {
+  try {
+    const { serverId } = req.body as z.infer<typeof schemas.leaveServerTeamSchema>;
+    const userId = req.user!.id;
+    await removeUserFromServerTeam(prisma, userId, serverId);
+    await audit({ actorId: userId, action: 'team.leave', meta: { serverId } });
+    emitChannelsRefresh(serverId);
+    res.json({ me: await buildSessionUser(userId) });
   } catch (err) {
     next(err);
   }
@@ -86,7 +102,7 @@ router.post('/logo', logoImageUpload.single('file'), async (req, res, next) => {
       target: team.id,
       meta: { name: team.name, byCaptain: true },
     });
-    emitChannelsRefresh();
+    if (team.serverId) emitChannelsRefresh(team.serverId);
     res.json({ team: serializeTeam(updated, { memberCount: updated._count.members }) });
   } catch (err) {
     next(err);
@@ -103,7 +119,7 @@ router.delete('/logo', async (req, res, next) => {
       include: { _count: { select: { members: true } } },
     });
     await audit({ actorId: req.user?.id, action: 'team.logo.clear', target: team.id });
-    emitChannelsRefresh();
+    if (team.serverId) emitChannelsRefresh(team.serverId);
     res.json({ team: serializeTeam(updated, { memberCount: updated._count.members }) });
   } catch (err) {
     next(err);

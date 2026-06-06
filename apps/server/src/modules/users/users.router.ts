@@ -18,6 +18,74 @@ const router: Router = Router();
 
 router.use(requireAuth);
 
+const suggestQuery = z.object({
+  q: z.string().min(1).max(64),
+  serverId: z.string().cuid().optional(),
+  limit: z.coerce.number().int().min(1).max(20).optional(),
+});
+
+router.get('/suggest', validate(suggestQuery, 'query'), async (req, res, next) => {
+  try {
+    const { q, serverId } = req.query as z.infer<typeof suggestQuery>;
+    const limit = (req.query as z.infer<typeof suggestQuery>).limit ?? 10;
+    const needle = q.trim().toLowerCase();
+    const meId = req.user!.id;
+
+    let candidateIds: string[] | undefined;
+    if (serverId) {
+      const members = await prisma.serverMember.findMany({
+        where: { serverId },
+        select: { userId: true },
+      });
+      candidateIds = members.map((m) => m.userId).filter((id) => id !== meId);
+    }
+
+    const users = await prisma.user.findMany({
+      where: {
+        id: candidateIds ? { in: candidateIds } : { not: meId },
+        isBanned: false,
+        OR: [
+          { username: { contains: needle } },
+          { displayName: { contains: needle } },
+        ],
+      },
+      include: { team: true },
+      take: limit * 3,
+    });
+
+    const accepted = await prisma.friendship.findMany({
+      where: {
+        status: 'ACCEPTED',
+        OR: [{ requesterId: meId }, { addresseeId: meId }],
+      },
+    });
+    const friendIds = new Set(
+      accepted.map((f) => (f.requesterId === meId ? f.addresseeId : f.requesterId)),
+    );
+    const pending = await prisma.friendship.findMany({
+      where: {
+        status: 'PENDING',
+        OR: [{ requesterId: meId }, { addresseeId: meId }],
+      },
+    });
+    const pendingIds = new Set(
+      pending.flatMap((f) => [f.requesterId, f.addresseeId]).filter((id) => id !== meId),
+    );
+
+    const filtered = users
+      .filter((u) => {
+        const hay = `${u.username} ${u.displayName}`.toLowerCase();
+        return hay.includes(needle);
+      })
+      .filter((u) => !friendIds.has(u.id) && !pendingIds.has(u.id))
+      .slice(0, limit);
+
+    res.json({ users: filtered.map(serializeUser) });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/', requirePermission(Permission.USER_VIEW_ALL), async (_req, res, next) => {
   try {
     const users = await prisma.user.findMany({

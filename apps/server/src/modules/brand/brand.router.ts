@@ -53,6 +53,18 @@ router.get('/team/:id', async (req, res, next) => {
   }
 });
 
+router.get('/server/:id', async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    if (!id) throw NotFound();
+    const resolved = await resolveLogoFile('server', id);
+    if (!resolved) throw NotFound();
+    streamLogoFile(resolved.abs, resolved.mime, res);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/user/:id', async (req, res, next) => {
   try {
     const id = req.params.id;

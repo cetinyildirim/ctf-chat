@@ -17,7 +17,11 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return;
   }
   const filterMsg = err instanceof Error ? err.message : '';
-  if (filterMsg.includes('Only JPEG') || filterMsg.includes('images are allowed')) {
+  if (
+    filterMsg.includes('File type not allowed') ||
+    filterMsg.includes('Only JPEG') ||
+    filterMsg.includes('images are allowed')
+  ) {
     res.status(400).json({ error: { code: 'UPLOAD', message: filterMsg } });
     return;
   }

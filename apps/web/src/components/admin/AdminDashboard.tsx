@@ -3,16 +3,9 @@
 import * as React from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  ChannelType,
-  Permission,
-  type Channel,
-} from '@sydt/shared';
+import { Permission } from '@sydt/shared';
 import {
   LayoutDashboard,
-  FolderTree,
-  Hash,
-  Upload,
   Settings2,
   ShieldAlert,
   ImageIcon,
@@ -27,15 +20,17 @@ import {
   ShieldBan,
   Megaphone,
   Palette,
+  FileText,
 } from 'lucide-react';
 import { ColorPalettePicker } from '@/components/common/ColorPalettePicker';
+import { MemberUserSuggest } from '@/components/common/MemberUserSuggest';
 import { AdminModerationSection } from '@/components/admin/AdminModerationSection';
 import { AdminBrandingSection } from '@/components/admin/AdminBrandingSection';
 import { AdminCommsSection } from '@/components/admin/AdminCommsSection';
 import { usePlatformBranding } from '@/components/providers/PlatformBrandingProvider';
-import { ADMIN_CHANNEL_TYPE_OPTIONS, channelTypeLabel } from '@/lib/admin/channel-type-options';
 import { AdminAuditSection } from '@/components/admin/AdminAuditSection';
 import { AdminSurveysSection } from '@/components/admin/AdminSurveysSection';
+import { AdminPagesSection } from '@/components/admin/AdminPagesSection';
 import { TopBar } from '@/components/layout/TopBar';
 import { GlassPanel } from '@/components/common/GlassPanel';
 import { Button } from '@/components/ui/button';
@@ -43,42 +38,26 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { EmptyState } from '@/components/common/EmptyState';
 import { useAuthStore } from '@/store/auth';
-import { categoriesApi, channelsApi, adminApi, adminTeamsApi, type AdminRuntimeInfo } from '@/lib/api/endpoints';
+import { channelsApi, serversApi, adminApi, adminTeamsApi, type AdminRuntimeInfo } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/query/client';
+import { useServerStore } from '@/store/server';
 import { unwrapApiError } from '@/lib/api/axios';
 import { toast } from 'sonner';
 import { useI18n } from '@/components/providers/LocaleProvider';
-import { channelCategoryBadgeDataUrl, categoryHeaderBadgeDataUrl } from '@/lib/branding/logo-badges';
 import { cn } from '@/lib/utils';
+import { AdminServerSwitcher } from '@/components/admin/AdminServerSwitcher';
 
 const VALID_TABS = new Set([
   'overview',
-  'categories',
-  'channels',
-  'import',
   'system',
   'teams',
   'audit',
   'surveys',
+  'pages',
   'moderation',
   'branding',
   'comms',
 ]);
-
-/** Temporary position used while swapping adjacent rows (avoid unique collisions). */
-const REORDER_SAFE_TEMP = 9_887_766;
-
-async function swapCategoryPositions(a: { id: string; position: number }, b: { id: string; position: number }) {
-  await categoriesApi.update(a.id, { position: REORDER_SAFE_TEMP });
-  await categoriesApi.update(b.id, { position: a.position });
-  await categoriesApi.update(a.id, { position: b.position });
-}
-
-async function swapChannelPositions(a: { id: string; position: number }, b: { id: string; position: number }) {
-  await channelsApi.update(a.id, { position: REORDER_SAFE_TEMP });
-  await channelsApi.update(b.id, { position: a.position });
-  await channelsApi.update(a.id, { position: b.position });
-}
 
 export function AdminDashboard() {
   const me = useAuthStore((s) => s.user);
@@ -96,9 +75,6 @@ export function AdminDashboard() {
     !!me?.permissions.includes(Permission.TEAM_MANAGE);
 
   const canDash = !!me?.permissions.includes(Permission.ADMIN_DASHBOARD);
-  const canCat = !!me?.permissions.includes(Permission.CATEGORY_MANAGE);
-  const canCh = !!me?.permissions.includes(Permission.CHANNEL_CREATE);
-  const canImport = canDash;
   const canTeams = !!me?.permissions.includes(Permission.TEAM_MANAGE);
   const canAudit = !!me?.permissions.includes(Permission.AUDIT_LOG_VIEW);
   const canModerate =
@@ -117,15 +93,12 @@ export function AdminDashboard() {
 
   React.useEffect(() => {
     if (!allowed) return;
-    if (tab === 'import' && !canImport) setTab('overview');
-    else if (tab === 'system' && !canDash) setTab('overview');
-    else if (tab === 'categories' && !canCat) setTab('overview');
-    else if (tab === 'channels' && !canCh) setTab('overview');
+    if (tab === 'system' && !canDash) setTab('overview');
     else if (tab === 'teams' && !canTeams) setTab('overview');
     else if (tab === 'audit' && !canAudit) setTab('overview');
     else if (tab === 'moderation' && !canModerate) setTab('overview');
-    else if ((tab === 'branding' || tab === 'comms') && !canDash) setTab('overview');
-  }, [allowed, tab, canImport, canCat, canCh, canDash, canTeams, canAudit, canModerate, setTab]);
+    else if ((tab === 'branding' || tab === 'comms' || tab === 'pages') && !canDash) setTab('overview');
+  }, [allowed, tab, canDash, canTeams, canAudit, canModerate, setTab]);
 
   if (!allowed) {
     return (
@@ -139,13 +112,11 @@ export function AdminDashboard() {
   const nav = [
     { id: 'overview' as const, label: t.adminMenuOverview, icon: LayoutDashboard, show: true },
     { id: 'teams' as const, label: t.adminMenuTeams, icon: Users, show: canTeams },
-    { id: 'categories' as const, label: t.adminMenuCategories, icon: FolderTree, show: canCat },
-    { id: 'channels' as const, label: t.adminMenuChannels, icon: Hash, show: canCh },
-    { id: 'import' as const, label: t.adminMenuImport, icon: Upload, show: canImport },
     { id: 'system' as const, label: t.adminMenuSystem, icon: Settings2, show: canDash },
     { id: 'branding' as const, label: t.adminMenuBranding, icon: Palette, show: canDash },
     { id: 'comms' as const, label: t.adminMenuComms, icon: Megaphone, show: canDash },
     { id: 'surveys' as const, label: t.adminMenuSurveys, icon: ClipboardList, show: canDash },
+    { id: 'pages' as const, label: t.adminMenuPages, icon: FileText, show: canDash },
     { id: 'moderation' as const, label: t.adminMenuModeration, icon: ShieldBan, show: canModerate },
     { id: 'audit' as const, label: t.adminMenuAudit, icon: ScrollText, show: canAudit },
   ].filter((x) => x.show);
@@ -156,7 +127,8 @@ export function AdminDashboard() {
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <nav className="shrink-0 border-b border-white/5 bg-bg-deep/30 px-2 py-3 lg:w-56 lg:border-b-0 lg:border-r lg:px-0 lg:py-4">
-          <ul className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
+          <AdminServerSwitcher />
+          <ul className="mt-2 flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
             {nav.map(({ id, label, icon: Icon }) => (
               <li key={id}>
                 <button
@@ -178,17 +150,13 @@ export function AdminDashboard() {
         </nav>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          {tab === 'overview' ? (
-            <OverviewSection canCat={canCat} canCh={canCh} canImport={canImport} onGoto={setTab} />
-          ) : null}
-          {tab === 'teams' && canTeams ? <TeamsSection /> : null}
-          {tab === 'categories' && canCat ? <CategoriesSection /> : null}
-          {tab === 'channels' && canCh ? <ChannelsSection /> : null}
-          {tab === 'import' && canImport ? <ImportSection /> : null}
+          {tab === 'overview' ? <OverviewSection /> : null}
+          {tab === 'teams' && canTeams ? <TeamsAdminPanel /> : null}
           {tab === 'system' && canDash ? <SystemSection /> : null}
           {tab === 'branding' && canDash ? <AdminBrandingSection /> : null}
           {tab === 'comms' && canDash ? <AdminCommsSection /> : null}
           {tab === 'surveys' && canDash ? <AdminSurveysSection /> : null}
+          {tab === 'pages' && canDash ? <AdminPagesSection /> : null}
           {tab === 'moderation' && canModerate ? <AdminModerationSection /> : null}
           {tab === 'audit' && canAudit ? <AdminAuditSection /> : null}
         </div>
@@ -197,21 +165,20 @@ export function AdminDashboard() {
   );
 }
 
-function OverviewSection({
-  canCat,
-  canCh,
-  canImport,
-  onGoto,
-}: {
-  canCat: boolean;
-  canCh: boolean;
-  canImport: boolean;
-  onGoto: (t: string) => void;
-}) {
+function OverviewSection() {
   const { t } = useI18n();
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const setSettingsServerId = useServerStore((s) => s.setSettingsServerId);
+
+  const { data: servers = [] } = useQuery({
+    queryKey: queryKeys.servers,
+    queryFn: serversApi.list,
+  });
+  const activeServer = servers.find((s) => s.id === activeServerId) ?? servers[0];
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.channels,
-    queryFn: channelsApi.list,
+    queryKey: queryKeys.channels(activeServerId ?? ''),
+    queryFn: () => channelsApi.list(activeServerId!),
+    enabled: !!activeServerId,
   });
   const catCount = data?.categories.length ?? 0;
   const chCount = data?.channels.length ?? 0;
@@ -220,665 +187,46 @@ function OverviewSection({
     <div className="admin-page w-full space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-fg">{t.adminOverviewHeading}</h1>
-        <p className="mt-1 text-sm text-fg-subtle">{t.adminOverviewLead}</p>
+        <p className="mt-1 text-sm text-fg-subtle">{t.adminOverviewLeadPlatform}</p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <button
-          type="button"
-          onClick={() => canCat && onGoto('categories')}
-          className={cn(
-            'rounded-xl border border-white/10 bg-white/[0.04] px-4 py-4 text-left transition hover:bg-white/[0.07]',
-            !canCat && 'cursor-not-allowed opacity-50',
-          )}
-        >
-          <div className="font-mono text-2xl font-bold text-accent-cyan">{isLoading ? '…' : catCount}</div>
-          <div className="text-xs text-fg-subtle">{t.structureCategories}</div>
-        </button>
-        <button
-          type="button"
-          onClick={() => canCh && onGoto('channels')}
-          className={cn(
-            'rounded-xl border border-white/10 bg-white/[0.04] px-4 py-4 text-left transition hover:bg-white/[0.07]',
-            !canCh && 'cursor-not-allowed opacity-50',
-          )}
-        >
-          <div className="font-mono text-2xl font-bold text-accent-violet">{isLoading ? '…' : chCount}</div>
-          <div className="text-xs text-fg-subtle">{t.structureChannels}</div>
-        </button>
-        <button
-          type="button"
-          onClick={() => canImport && onGoto('import')}
-          className={cn(
-            'rounded-xl border border-white/10 bg-white/[0.04] px-4 py-4 text-left transition hover:bg-white/[0.07]',
-            !canImport && 'cursor-not-allowed opacity-50',
-          )}
-        >
-          <div className="text-sm font-medium text-fg">{t.importTitle}</div>
-          <div className="text-xs text-fg-subtle">{t.adminOverviewImportHint}</div>
-        </button>
-      </div>
+
+      <GlassPanel className="space-y-4 p-5">
+        <p className="text-sm font-medium text-fg">{t.adminOverviewServerBlockTitle}</p>
+        <p className="text-sm text-fg-subtle">{t.adminOverviewServerHint}</p>
+        {activeServer ? (
+          <div className="flex flex-wrap items-center gap-4">
+            <div>
+              <div className="font-mono text-lg font-bold text-accent-cyan">{isLoading ? '…' : catCount}</div>
+              <div className="text-xs text-fg-subtle">{t.structureCategories}</div>
+            </div>
+            <div>
+              <div className="font-mono text-lg font-bold text-accent-violet">{isLoading ? '…' : chCount}</div>
+              <div className="text-xs text-fg-subtle">{t.structureChannels}</div>
+            </div>
+            <Button type="button" size="sm" onClick={() => setSettingsServerId(activeServer.id)}>
+              {t.adminOpenServerSettings}
+            </Button>
+          </div>
+        ) : (
+          <p className="text-sm text-fg-subtle">{t.adminOverviewNoServer}</p>
+        )}
+      </GlassPanel>
+
       <GlassPanel className="p-5 text-sm text-fg-subtle">
         <p className="font-medium text-fg">{t.adminOverviewHintTitle}</p>
         <ul className="mt-2 list-inside list-disc space-y-1">
-          <li>{t.adminOverviewHintChannelsLogo}</li>
-          <li>{t.adminOverviewHintCsv}</li>
+          <li>{t.adminOverviewHintPlatform}</li>
         </ul>
       </GlassPanel>
     </div>
   );
 }
 
-function CategoriesSection() {
+export function TeamsAdminPanel({ serverId: serverIdProp }: { serverId?: string | null }) {
   const { t } = useI18n();
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: queryKeys.channels, queryFn: channelsApi.list });
-  const [catName, setCatName] = React.useState('');
-  const [catStaff, setCatStaff] = React.useState(false);
-  const [catEditingId, setCatEditingId] = React.useState<string | null>(null);
-  const [catEditName, setCatEditName] = React.useState('');
-  const [catEditStaff, setCatEditStaff] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-  const invalidate = () => void qc.invalidateQueries({ queryKey: queryKeys.channels });
-
-  const onCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!catName.trim()) return;
-    setBusy(true);
-    try {
-      await categoriesApi.create({ name: catName.trim(), staffOnly: catStaff });
-      setCatName('');
-      setCatStaff(false);
-      toast.success(t.catCreated);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? 'Error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onLogo = async (id: string, file: File | null) => {
-    if (!file) return;
-    setBusy(true);
-    try {
-      await categoriesApi.uploadLogo(id, file);
-      toast.success(t.logoUpdated);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? 'Error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onClear = async (id: string) => {
-    setBusy(true);
-    try {
-      await categoriesApi.clearLogo(id);
-      toast.success(t.logoRemoved);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? 'Error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const categoriesRaw = data?.categories ?? [];
-
-  const sortedCategories = [...categoriesRaw].sort(
-    (a, b) => a.position - b.position || a.name.localeCompare(b.name),
-  );
-
-  const saveCategoryEdit = async (id: string) => {
-    if (!catEditName.trim()) return;
-    setBusy(true);
-    try {
-      await categoriesApi.update(id, { name: catEditName.trim(), staffOnly: catEditStaff });
-      toast.success(t.catUpdated);
-      setCatEditingId(null);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? 'Error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const deleteCategory = async (id: string) => {
-    if (!window.confirm(t.catDeleteConfirm)) return;
-    setBusy(true);
-    try {
-      await categoriesApi.remove(id);
-      toast.success(t.catDeleted);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? 'Error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const moveCategory = async (catId: string, dir: -1 | 1) => {
-    const i = sortedCategories.findIndex((c) => c.id === catId);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= sortedCategories.length) return;
-    setBusy(true);
-    try {
-      await swapCategoryPositions(sortedCategories[i]!, sortedCategories[j]!);
-      toast.success(t.reorderSaved);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? t.reorderError);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="admin-page w-full space-y-6">
-      <h1 className="text-xl font-semibold text-fg">{t.structureCategories}</h1>
-      <p className="text-sm text-fg-subtle">{t.adminReorderHint}</p>
-      <GlassPanel className="space-y-4 p-6">
-        <form onSubmit={onCreate} className="flex flex-wrap items-end gap-3">
-          <div className="min-w-[200px] flex-1 space-y-1.5">
-            <Label>{t.categoryNameLabel}</Label>
-            <Input value={catName} onChange={(e) => setCatName(e.target.value)} />
-          </div>
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-subtle">
-            <input type="checkbox" checked={catStaff} onChange={(e) => setCatStaff(e.target.checked)} />
-            {t.staffOnlyCategory}
-          </label>
-          <Button type="submit" disabled={busy || isLoading}>
-            {t.addCategory}
-          </Button>
-        </form>
-        <ul className="divide-y divide-white/5 rounded-lg border border-white/8">
-          {sortedCategories.map((c, idx) => (
-            <li key={c.id} className="flex flex-wrap items-center gap-3 py-3">
-              <div className="flex shrink-0 flex-col gap-0.5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  disabled={busy || idx === 0}
-                  aria-label={t.reorderUp}
-                  onClick={() => void moveCategory(c.id, -1)}
-                >
-                  <ChevronUp className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  disabled={busy || idx >= sortedCategories.length - 1}
-                  aria-label={t.reorderDown}
-                  onClick={() => void moveCategory(c.id, 1)}
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-white/5">
-                {c.logoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.logoUrl} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={categoryHeaderBadgeDataUrl(c.name, c.id)}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                {catEditingId === c.id ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input value={catEditName} onChange={(e) => setCatEditName(e.target.value)} className="max-w-xs" />
-                    <label className="flex items-center gap-1 text-xs text-fg-subtle">
-                      <input type="checkbox" checked={catEditStaff} onChange={(e) => setCatEditStaff(e.target.checked)} />
-                      {t.staffOnlyCategory}
-                    </label>
-                  </div>
-                ) : (
-                  <>
-                    <div className="font-medium text-fg">{c.name}</div>
-                    {c.staffOnly ? (
-                      <div className="text-[11px] uppercase text-amber-300/90">{t.staffOnlyCategory}</div>
-                    ) : null}
-                  </>
-                )}
-              </div>
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                id={`adm-cat-${c.id}`}
-                onChange={(e) => {
-                  void onLogo(c.id, e.target.files?.[0] ?? null);
-                  e.target.value = '';
-                }}
-              />
-              {catEditingId !== c.id ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => {
-                      setCatEditingId(c.id);
-                      setCatEditName(c.name);
-                      setCatEditStaff(!!c.staffOnly);
-                    }}
-                  >
-                    {t.catEdit}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void deleteCategory(c.id)}
-                  >
-                    {t.catDelete}
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button type="button" size="sm" disabled={busy} onClick={() => void saveCategoryEdit(c.id)}>
-                    {t.teamSave}
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={() => setCatEditingId(null)}>
-                    {t.teamCancelEdit}
-                  </Button>
-                </>
-              )}
-              <Button type="button" variant="outline" size="sm" asChild disabled={busy}>
-                <label htmlFor={`adm-cat-${c.id}`} className="cursor-pointer">
-                  {t.uploadLogo}
-                </label>
-              </Button>
-              {c.logoUrl ? (
-                <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void onClear(c.id)}>
-                  {t.removeLogo}
-                </Button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      </GlassPanel>
-    </div>
-  );
-}
-
-function ChannelsSection() {
-  const { t } = useI18n();
-  const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: queryKeys.channels, queryFn: channelsApi.list });
-  const categoryMeta = React.useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of data?.categories ?? []) m.set(c.id, c.name);
-    return m;
-  }, [data?.categories]);
-
-  const [chName, setChName] = React.useState('');
-  const [chTopic, setChTopic] = React.useState('');
-  const [chType, setChType] = React.useState<ChannelType>(ChannelType.GLOBAL_CHAT);
-  const [chCategoryId, setChCategoryId] = React.useState('');
-  const [chEditingId, setChEditingId] = React.useState<string | null>(null);
-  const [chEditName, setChEditName] = React.useState('');
-  const [chEditTopic, setChEditTopic] = React.useState('');
-  const [chEditType, setChEditType] = React.useState<ChannelType>(ChannelType.GLOBAL_CHAT);
-  const [busy, setBusy] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!data?.categories.length) return;
-    if (!chCategoryId || !data.categories.some((c) => c.id === chCategoryId)) {
-      setChCategoryId(data.categories[0]!.id);
-    }
-  }, [data?.categories, chCategoryId]);
-
-  const invalidate = () => void qc.invalidateQueries({ queryKey: queryKeys.channels });
-
-  const saveChannelEdit = async (id: string) => {
-    if (!chEditName.trim()) return;
-    setBusy(true);
-    try {
-      await channelsApi.update(id, {
-        name: chEditName.trim(),
-        topic: chEditTopic.trim() || null,
-        type: chEditType,
-      });
-      toast.success(t.chUpdated);
-      setChEditingId(null);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? 'Error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const deleteChannel = async (id: string) => {
-    if (!window.confirm(t.chDeleteConfirm)) return;
-    setBusy(true);
-    try {
-      await channelsApi.remove(id);
-      toast.success(t.chDeleted);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? 'Error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chName.trim()) return;
-    setBusy(true);
-    try {
-      await channelsApi.create({
-        name: chName.trim(),
-        topic: chTopic.trim() || null,
-        type: chType,
-        categoryId: chCategoryId || null,
-        isPrivate: false,
-        iconKey: null,
-      });
-      setChName('');
-      setChTopic('');
-      toast.success(t.channelCreated);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? 'Error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onLogo = async (id: string, file: File | null) => {
-    if (!file) return;
-    setBusy(true);
-    try {
-      await channelsApi.uploadLogo(id, file);
-      toast.success(t.logoUpdated);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? 'Error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onClear = async (id: string) => {
-    setBusy(true);
-    try {
-      await channelsApi.clearLogo(id);
-      toast.success(t.logoRemoved);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? 'Error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const categories = data?.categories ?? [];
-  const channels = data?.channels ?? [];
-
-  const channelGroups = React.useMemo(() => {
-    const buckets = new Map<string, Channel[]>();
-    for (const ch of channels) {
-      const key = ch.categoryId ?? '__uncat__';
-      const cur = buckets.get(key);
-      if (cur) cur.push(ch);
-      else buckets.set(key, [ch]);
-    }
-    for (const list of buckets.values()) {
-      list.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
-    }
-    const sortedCats = [...categories].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
-    const sections: Array<{ key: string; title: string; list: Channel[] }> = [];
-    for (const c of sortedCats) {
-      const list = buckets.get(c.id);
-      if (list?.length) sections.push({ key: c.id, title: c.name, list });
-    }
-    const unc = buckets.get('__uncat__');
-    if (unc?.length) sections.push({ key: '__uncat__', title: t.uncategorized, list: unc });
-    return sections;
-  }, [categories, channels, t]);
-
-  const moveChannel = async (ordered: Channel[], chId: string, dir: -1 | 1) => {
-    const i = ordered.findIndex((c) => c.id === chId);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= ordered.length) return;
-    setBusy(true);
-    try {
-      await swapChannelPositions(ordered[i]!, ordered[j]!);
-      toast.success(t.reorderSaved);
-      invalidate();
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? t.reorderError);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="admin-page w-full space-y-6">
-      <h1 className="text-xl font-semibold text-fg">{t.structureChannels}</h1>
-      <p className="text-sm text-fg-subtle">{t.adminReorderHint}</p>
-      <GlassPanel className="space-y-4 p-6">
-        <form onSubmit={onCreate} className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label>{t.channelNameLabel}</Label>
-            <Input value={chName} onChange={(e) => setChName(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>{t.channelTypeLabel}</Label>
-            <select
-              className="flex h-10 w-full rounded-md border border-white/10 bg-bg-deep px-3 text-sm text-fg"
-              value={chType}
-              onChange={(e) => setChType(e.target.value as ChannelType)}
-            >
-              {ADMIN_CHANNEL_TYPE_OPTIONS.map((ty) => (
-                <option key={ty} value={ty}>
-                  {channelTypeLabel(ty, t)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>{t.channelCategoryLabel}</Label>
-            <select
-              className="flex h-10 w-full rounded-md border border-white/10 bg-bg-deep px-3 text-sm text-fg"
-              value={chCategoryId}
-              onChange={(e) => setChCategoryId(e.target.value)}
-            >
-              <option value="">{t.noCategory}</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label>{t.channelTopicLabel}</Label>
-            <Input value={chTopic} onChange={(e) => setChTopic(e.target.value)} />
-          </div>
-          <div className="sm:col-span-2">
-            <Button type="submit" disabled={busy || isLoading}>
-              {t.addChannel}
-            </Button>
-          </div>
-        </form>
-        <div className="space-y-8">
-          {channelGroups.map((section) => (
-            <div key={section.key}>
-              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
-                {section.title}
-              </h3>
-              <ul className="divide-y divide-white/5 rounded-lg border border-white/8">
-                {section.list.map((ch, idx) => {
-                  const catLabel = ch.categoryId ? categoryMeta.get(ch.categoryId) ?? t.noCategory : t.uncategorized;
-                  const fallback = channelCategoryBadgeDataUrl(catLabel, ch.categoryId ?? null);
-                  return (
-                    <li key={ch.id} className="flex flex-wrap items-center gap-3 py-3">
-                      <div className="flex shrink-0 flex-col gap-0.5">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          disabled={busy || idx === 0}
-                          aria-label={t.reorderUp}
-                          onClick={() => void moveChannel(section.list, ch.id, -1)}
-                        >
-                          <ChevronUp className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          disabled={busy || idx >= section.list.length - 1}
-                          aria-label={t.reorderDown}
-                          onClick={() => void moveChannel(section.list, ch.id, 1)}
-                        >
-                          <ChevronDown className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-white/5">
-                        {ch.logoUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={ch.logoUrl} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={fallback} alt="" className="h-full w-full object-cover" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        {chEditingId === ch.id ? (
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <Input value={chEditName} onChange={(e) => setChEditName(e.target.value)} />
-                            <Input value={chEditTopic} onChange={(e) => setChEditTopic(e.target.value)} placeholder={t.channelTopicLabel} />
-                            <select
-                              className="flex h-10 rounded-md border border-white/10 bg-bg-deep px-2 text-sm text-fg sm:col-span-2"
-                              value={chEditType}
-                              onChange={(e) => setChEditType(e.target.value as ChannelType)}
-                            >
-                              {ADMIN_CHANNEL_TYPE_OPTIONS.map((ty) => (
-                                <option key={ty} value={ty}>
-                                  {channelTypeLabel(ty, t)}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="font-medium text-fg">{ch.name}</div>
-                            <div className="truncate text-[11px] text-muted-fg">{channelTypeLabel(ch.type as ChannelType, t)}</div>
-                          </>
-                        )}
-                      </div>
-                      {chEditingId !== ch.id ? (
-                        <>
-                          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { setChEditingId(ch.id); setChEditName(ch.name); setChEditTopic(ch.topic ?? ''); setChEditType(ch.type as ChannelType); }}>{t.chEdit}</Button>
-                          <Button type="button" variant="destructive" size="sm" disabled={busy} onClick={() => void deleteChannel(ch.id)}>{t.chDelete}</Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button type="button" size="sm" disabled={busy} onClick={() => void saveChannelEdit(ch.id)}>{t.teamSave}</Button>
-                          <Button type="button" size="sm" variant="outline" onClick={() => setChEditingId(null)}>{t.teamCancelEdit}</Button>
-                        </>
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        id={`adm-ch-${ch.id}`}
-                        onChange={(e) => {
-                          void onLogo(ch.id, e.target.files?.[0] ?? null);
-                          e.target.value = '';
-                        }}
-                      />
-                      <Button type="button" variant="outline" size="sm" asChild disabled={busy}>
-                        <label htmlFor={`adm-ch-${ch.id}`} className="cursor-pointer">
-                          {t.uploadLogo}
-                        </label>
-                      </Button>
-                      {ch.logoUrl ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() => void onClear(ch.id)}
-                        >
-                          {t.removeLogo}
-                        </Button>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </GlassPanel>
-    </div>
-  );
-}
-
-function ImportSection() {
-  const { t } = useI18n();
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = React.useState(false);
-
-  const onPick = () => inputRef.current?.click();
-
-  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    setBusy(true);
-    try {
-      const res = await adminApi.importCtfd(file);
-      toast.success(t.importSuccess, { description: JSON.stringify(res.stats) });
-    } catch (err) {
-      toast.error(unwrapApiError(err).message ?? 'Import failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="admin-page w-full space-y-6">
-      <h1 className="text-xl font-semibold text-fg">{t.importTitle}</h1>
-      <GlassPanel className="space-y-4 p-6">
-        <div className="flex items-start gap-3">
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-accent-cyan/15 text-accent-cyan">
-            <Upload className="h-6 w-6" />
-          </div>
-          <p className="text-sm text-fg-subtle">{t.importDescription}</p>
-        </div>
-        <input ref={inputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
-        <Button type="button" disabled={busy} onClick={onPick}>
-          {busy ? '…' : t.importButton}
-        </Button>
-      </GlassPanel>
-    </div>
-  );
-}
-
-function TeamsSection() {
-  const { t } = useI18n();
-  const qc = useQueryClient();
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const serverId = serverIdProp ?? activeServerId;
   const [name, setName] = React.useState('');
   const [tagline, setTagline] = React.useState('');
   const [color, setColor] = React.useState('#22d3ee');
@@ -888,13 +236,14 @@ function TeamsSection() {
   const [addMemberIdByTeam, setAddMemberIdByTeam] = React.useState<Record<string, string>>({});
 
   const { data: teams = [], isLoading } = useQuery({
-    queryKey: queryKeys.adminTeams,
-    queryFn: adminTeamsApi.list,
+    queryKey: queryKeys.adminTeams(serverId ?? ''),
+    queryFn: () => adminTeamsApi.list(serverId!),
+    enabled: !!serverId,
   });
 
   const invalidate = React.useCallback(() => {
-    void qc.invalidateQueries({ queryKey: queryKeys.adminTeams });
-  }, [qc]);
+    if (serverId) void qc.invalidateQueries({ queryKey: queryKeys.adminTeams(serverId) });
+  }, [qc, serverId]);
 
   const { data: members = [], isFetching: membersFetching } = useQuery({
     queryKey: ['admin', 'team-members', expandedId] as const,
@@ -905,7 +254,7 @@ function TeamsSection() {
 
   const createMut = useMutation({
     mutationFn: () =>
-      adminTeamsApi.create({
+      adminTeamsApi.create(serverId!, {
         name: name.trim(),
         ...(tagline.trim() ? { tagline: tagline.trim() } : {}),
         ...(/^#[0-9a-fA-F]{6}$/.test(color.trim()) ? { color: color.trim() } : {}),
@@ -931,8 +280,14 @@ function TeamsSection() {
 
   const regenInviteMut = useMutation({
     mutationFn: (id: string) => adminTeamsApi.regenerateInvite(id),
-    onSuccess: () => {
+    onSuccess: async (data) => {
       toast.success(t.teamInviteUpdated);
+      try {
+        await navigator.clipboard.writeText(data.inviteCode);
+        toast.success(t.teamInviteCopied);
+      } catch {
+        /* clipboard optional */
+      }
       invalidate();
     },
     onError: (err) => toast.error(unwrapApiError(err).message),
@@ -983,14 +338,19 @@ function TeamsSection() {
     onError: (err) => toast.error(unwrapApiError(err).message),
   });
 
-  const copyInvite = async (inviteCode: string) => {
+  const copyInvite = async (teamId: string) => {
     try {
+      const inviteCode = await adminTeamsApi.getInvite(teamId);
       await navigator.clipboard.writeText(inviteCode);
       toast.success(t.teamInviteCopied);
-    } catch {
-      toast.error(t.teamInviteCopyFail);
+    } catch (err) {
+      toast.error(unwrapApiError(err).message || t.teamInviteCopyFail);
     }
   };
+
+  if (!serverId) {
+    return <p className="text-sm text-fg-subtle">{t.teamsAdminPickServer}</p>;
+  }
 
   if (isLoading) return <div className="text-fg-subtle">{t.loading}</div>;
 
@@ -998,7 +358,7 @@ function TeamsSection() {
     <div className="admin-page w-full space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-fg">{t.adminMenuTeams}</h1>
-        <p className="mt-1 text-sm text-fg-subtle">{t.teamsAdminHint}</p>
+        <p className="mt-1 text-sm text-fg-subtle">{t.teamsAdminHintServer}</p>
       </div>
 
       <GlassPanel className="space-y-3 p-6">
@@ -1069,15 +429,12 @@ function TeamsSection() {
                     </>
                   )}
                   <div className="flex flex-wrap items-center gap-2 pt-1">
-                    <code className="rounded border border-white/10 bg-black/25 px-2 py-1 font-mono text-[11px] text-fg">
-                      {team.inviteCode}
-                    </code>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
                       className="h-8 gap-1.5 px-2"
-                      onClick={() => void copyInvite(team.inviteCode)}
+                      onClick={() => void copyInvite(team.id)}
                     >
                       <Copy className="h-3.5 w-3.5" />
                       {t.teamInviteCopyBtn}
@@ -1165,18 +522,39 @@ function TeamsSection() {
                 <div className="mt-4 space-y-3 border-t border-white/8 pt-4">
                   {membersFetching ? <div className="text-xs text-muted-fg">{t.loading}</div> : null}
 
-                  <div className="flex flex-wrap gap-2">
-                    <Input
-                      placeholder={t.teamAddMemberHint}
-                      className="max-w-md"
-                      value={addMid}
-                      onChange={(e) =>
-                        setAddMemberIdByTeam((m) => ({
-                          ...m,
-                          [team.id]: e.target.value,
-                        }))
-                      }
-                    />
+                  <div className="flex flex-wrap items-end gap-2">
+                    {serverId ? (
+                      <MemberUserSuggest
+                        serverId={serverId}
+                        className="max-w-md flex-1"
+                        value={addMid}
+                        onChange={(v) =>
+                          setAddMemberIdByTeam((m) => ({
+                            ...m,
+                            [team.id]: v,
+                          }))
+                        }
+                        onPick={(username) =>
+                          setAddMemberIdByTeam((m) => ({
+                            ...m,
+                            [team.id]: username,
+                          }))
+                        }
+                        placeholder={t.teamAddMemberHint}
+                      />
+                    ) : (
+                      <Input
+                        placeholder={t.teamAddMemberHint}
+                        className="max-w-md"
+                        value={addMid}
+                        onChange={(e) =>
+                          setAddMemberIdByTeam((m) => ({
+                            ...m,
+                            [team.id]: e.target.value,
+                          }))
+                        }
+                      />
+                    )}
                     <Button
                       type="button"
                       size="sm"

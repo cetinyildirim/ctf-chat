@@ -4,6 +4,7 @@ import path from 'node:path';
 import multer from 'multer';
 import { nanoid } from 'nanoid';
 import { env } from '../env.js';
+import { isAllowedMessageUpload } from './allowed-upload.js';
 
 export const UPLOAD_ROOT = path.resolve(process.cwd(), env.UPLOAD_DIR);
 
@@ -28,6 +29,13 @@ const storage = multer.diskStorage({
 export const channelMessageUpload = multer({
   storage,
   limits: { fileSize: maxBytes, files: 10 },
+  fileFilter: (_req, file, cb) => {
+    if (!isAllowedMessageUpload(file.mimetype)) {
+      cb(new Error('File type not allowed'));
+    } else {
+      cb(null, true);
+    }
+  },
 });
 
 /** Single image for category/channel logos (field name: `file`). */
@@ -35,8 +43,8 @@ export const logoImageUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: Math.min(maxBytes, 3 * 1024 * 1024) },
   fileFilter: (_req, file, cb) => {
-    if (!/^image\/(jpeg|png|gif|webp|svg\+xml)$/i.test(file.mimetype)) {
-      cb(new Error('Only JPEG, PNG, GIF, WebP, or SVG images are allowed'));
+    if (!/^image\/(jpeg|png|gif|webp)$/i.test(file.mimetype)) {
+      cb(new Error('Only JPEG, PNG, GIF, or WebP images are allowed'));
     } else {
       cb(null, true);
     }

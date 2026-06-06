@@ -12,12 +12,17 @@ export const patchPlatformBrandingSchema = z.object({
 });
 
 export const createTeamByUserSchema = z.object({
+  serverId: z.string().cuid(),
   name: z.string().min(2).max(48),
   tagline: z.string().max(120).optional(),
   color: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/)
     .optional(),
+});
+
+export const leaveServerTeamSchema = z.object({
+  serverId: z.string().cuid(),
 });
 
 export type PlatformBranding = {

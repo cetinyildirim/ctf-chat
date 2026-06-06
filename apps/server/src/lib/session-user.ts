@@ -1,25 +1,27 @@
-import type { Role, SessionUser } from '@sydt/shared';
+import type { SessionUser } from '@sydt/shared';
 import { permissionsFor } from '@sydt/shared';
 import { prisma } from '../prisma.js';
 import { Unauthorized } from './http-error.js';
 import { serializeUser } from '../modules/serializers.js';
+import { permissionRoleOf, repairUserPlatformRole } from './user-role.js';
 
 export async function buildSessionUser(userId: string): Promise<SessionUser> {
-  const user = await prisma.user.findUnique({
+  const user = await repairUserPlatformRole(userId);
+  const withTeam = await prisma.user.findUnique({
     where: { id: userId },
     include: { team: true },
   });
-  if (!user) throw Unauthorized('Session user not found');
-  const locale = user.preferredLocale === 'en' ? 'en' : 'tr';
-  const theme = user.preferredTheme === 'light' ? 'light' : 'dark';
+  if (!withTeam) throw Unauthorized('Session user not found');
+  const locale = withTeam.preferredLocale === 'en' ? 'en' : 'tr';
+  const theme = withTeam.preferredTheme === 'light' ? 'light' : 'dark';
   let defaultNotifyMode: 'ALL' | 'MENTIONS_ONLY' | 'NONE' = 'ALL';
-  if (user.notifyDefault === 'MENTIONS_ONLY') defaultNotifyMode = 'MENTIONS_ONLY';
-  else if (user.notifyDefault === 'NONE') defaultNotifyMode = 'NONE';
+  if (withTeam.notifyDefault === 'MENTIONS_ONLY') defaultNotifyMode = 'MENTIONS_ONLY';
+  else if (withTeam.notifyDefault === 'NONE') defaultNotifyMode = 'NONE';
 
   return {
-    ...serializeUser(user),
-    email: user.email,
-    permissions: permissionsFor(user.role as Role),
+    ...serializeUser(withTeam),
+    email: withTeam.email,
+    permissions: permissionsFor(permissionRoleOf(withTeam)),
     locale,
     theme,
     defaultNotifyMode,

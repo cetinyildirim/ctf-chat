@@ -12,12 +12,11 @@ import {
 } from 'lucide-react';
 import type { Message } from '@sydt/shared';
 import { Permission, isStaff } from '@sydt/shared';
-import { Avatar } from '@/components/ui/avatar';
 import { resolveUserAvatarSrc } from '@/lib/branding/user-avatar';
+import { AvatarWithStatus } from '@/components/common/AvatarWithStatus';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { UserIdentity } from '@/components/common/UserIdentity';
-import { TeamMark } from '@/components/common/TeamMark';
 import { MessageMarkdown } from './MessageMarkdown';
 import { cn } from '@/lib/utils';
 import { shortTime, smartDate, fullTimestamp } from '@/lib/format/time';
@@ -25,8 +24,8 @@ import { useAuthStore } from '@/store/auth';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useCan } from '@/lib/rbac/Can';
+import { useI18n } from '@/components/providers/LocaleProvider';
 import { UserProfileTrigger } from '@/components/users/UserProfileTrigger';
-import { StatusDot } from '@/components/common/StatusDot';
 import { useLivePresence } from '@/lib/presence/use-live-presence';
 
 const QUICK_REACTIONS = ['👍', '🔥', '🩸', '💀', '🛡️', '🎯', '✅', '❌'];
@@ -34,6 +33,7 @@ const QUICK_REACTIONS = ['👍', '🔥', '🩸', '💀', '🛡️', '🎯', '✅
 interface Props {
   message: Message;
   grouped: boolean;
+  highlighted?: boolean;
   onReact: (emoji: string) => void;
   onEdit: (id: string, content: string) => void;
   onDelete: (id: string) => void;
@@ -41,7 +41,17 @@ interface Props {
   onReply: (id: string) => void;
 }
 
-export function MessageItem({ message, grouped, onReact, onEdit, onDelete, onPin, onReply }: Props) {
+export function MessageItem({
+  message,
+  grouped,
+  highlighted,
+  onReact,
+  onEdit,
+  onDelete,
+  onPin,
+  onReply,
+}: Props) {
+  const { t } = useI18n();
   const me = useAuthStore((s) => s.user);
   const canPin = useCan(Permission.MESSAGE_PIN);
   const canDeleteAny = useCan(Permission.MESSAGE_DELETE_ANY);
@@ -83,27 +93,26 @@ export function MessageItem({ message, grouped, onReact, onEdit, onDelete, onPin
         'group relative flex gap-3 px-4 transition-colors',
         grouped ? 'py-0.5 pl-16' : 'py-2 mt-1',
         'hover:bg-white/[0.02]',
+        highlighted && 'bg-accent-cyan/10 ring-1 ring-inset ring-accent-cyan/25',
       )}
+      id={`message-${message.id}`}
     >
       {!grouped ? (
-        <UserProfileTrigger userId={message.authorId} disabled={isMine} className="relative mt-1 shrink-0">
-          <Avatar
+        <UserProfileTrigger
+          userId={message.authorId}
+          disabled={isMine}
+          className="mt-1 inline-flex shrink-0 rounded-full"
+        >
+          <AvatarWithStatus
             name={message.author.displayName}
             src={resolveUserAvatarSrc(message.author)}
+            status={authorPresence}
             size="md"
             teamColor={message.author.team?.color}
             teamName={message.author.team?.name}
+            team={message.author.team}
+            showTeamBadge={!!message.author.team}
           />
-          {!isMine ? (
-            <span className="absolute -bottom-0.5 -left-0.5 ring-2 ring-bg rounded-full">
-              <StatusDot status={authorPresence} />
-            </span>
-          ) : null}
-          {message.author.team ? (
-            <span className="absolute -bottom-1 -right-1">
-              <TeamMark team={message.author.team} size="xs" />
-            </span>
-          ) : null}
         </UserProfileTrigger>
       ) : (
         <span className="w-9 shrink-0 self-start pt-1 text-[10px] tabular-nums text-muted-fg opacity-0 group-hover:opacity-100">
@@ -130,7 +139,7 @@ export function MessageItem({ message, grouped, onReact, onEdit, onDelete, onPin
               </Tooltip>
             {message.pinned ? (
               <span className="inline-flex items-center gap-0.5 rounded border border-accent-amber/30 bg-accent-amber/10 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent-amber">
-                <Pin className="h-2.5 w-2.5" /> pinned
+                <Pin className="h-2.5 w-2.5" /> {t.messagePinnedBadge}
               </span>
             ) : null}
             {message.editedAt ? (

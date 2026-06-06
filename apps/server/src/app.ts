@@ -7,6 +7,7 @@ import { env } from './env.js';
 import { logger } from './lib/logger.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { generalLimiter } from './middleware/ratelimit.js';
+import { csrfProtection } from './middleware/csrf.js';
 
 import authRouter from './modules/auth/auth.router.js';
 import usersRouter from './modules/users/users.router.js';
@@ -28,6 +29,9 @@ import directRouter from './modules/direct/direct.router.js';
 import surveysRouter from './modules/surveys/surveys.router.js';
 import configRouter from './modules/config/config.router.js';
 import reportsRouter from './modules/reports/reports.router.js';
+import serversRouter from './modules/servers/servers.router.js';
+import invitesRouter from './modules/invites/invites.router.js';
+import pagesRouter from './modules/pages/pages.router.js';
 
 export function createApp(): Express {
   const app = express();
@@ -38,7 +42,13 @@ export function createApp(): Express {
   app.use(
     helmet({
       crossOriginResourcePolicy: { policy: 'cross-origin' },
-      contentSecurityPolicy: false,
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          defaultSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+        },
+      },
     }),
   );
   app.use(
@@ -59,6 +69,7 @@ export function createApp(): Express {
     }),
   );
   app.use(generalLimiter);
+  app.use(csrfProtection);
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true, ts: new Date().toISOString() });
@@ -84,6 +95,9 @@ export function createApp(): Express {
   app.use('/api/surveys', surveysRouter);
   app.use('/api/config', configRouter);
   app.use('/api/reports', reportsRouter);
+  app.use('/api/invites', invitesRouter);
+  app.use('/api/servers', serversRouter);
+  app.use('/api/pages', pagesRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

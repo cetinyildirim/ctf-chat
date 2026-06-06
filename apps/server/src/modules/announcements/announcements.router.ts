@@ -6,7 +6,7 @@ import { requirePermission } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
 import { audit } from '../../lib/audit.js';
 import { serializeAnnouncement } from '../serializers.js';
-import { emitAnnouncement } from '../../realtime/broadcasters.js';
+import { publishAnnouncementById } from '../../lib/announcement-publish.js';
 
 const router: Router = Router();
 
@@ -15,6 +15,7 @@ router.use(requireAuth);
 router.get('/', async (_req, res, next) => {
   try {
     const items = await prisma.announcement.findMany({
+      where: { publishedAt: { not: null } },
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: { author: { include: { team: true } } },
@@ -32,18 +33,24 @@ router.post(
   async (req, res, next) => {
     try {
       const data = req.body as ReturnType<typeof schemas.createAnnouncementSchema.parse>;
+      const scheduledFor = data.scheduledFor ? new Date(data.scheduledFor) : null;
+      const publishNow = !scheduledFor || scheduledFor <= new Date();
       const announcement = await prisma.announcement.create({
         data: {
           title: data.title,
           body: data.body,
           severity: data.severity,
           authorId: req.user!.id,
-          scheduledFor: data.scheduledFor ? new Date(data.scheduledFor) : null,
+          scheduledFor,
         },
         include: { author: { include: { team: true } } },
       });
-      const serialized = serializeAnnouncement(announcement);
-      emitAnnouncement(serialized);
+      if (publishNow) await publishAnnouncementById(announcement.id);
+      const fresh = await prisma.announcement.findUniqueOrThrow({
+        where: { id: announcement.id },
+        include: { author: { include: { team: true } } },
+      });
+      const serialized = serializeAnnouncement(fresh);
       await audit({ actorId: req.user?.id, action: 'announcement.create', target: announcement.id });
       res.status(201).json({ announcement: serialized });
     } catch (err) {

@@ -44,6 +44,7 @@ export function serializeTeam(team: AnyRecord, extras: {
 } = {}): Team {
   return {
     id: team.id as string,
+    serverId: (team.serverId as string | undefined) ?? undefined,
     slug: team.slug as string,
     name: team.name as string,
     tagline: (team.tagline as string | null) ?? null,
@@ -73,6 +74,7 @@ export function serializeChannel(channel: AnyRecord): Channel {
     teamId: (channel.teamId as string | null) ?? null,
     iconKey: (channel.iconKey as string | null) ?? null,
     logoUrl: (channel.logoUrl as string | null) ?? null,
+    serverId: (channel.serverId as string | null) ?? null,
   };
 }
 
@@ -251,6 +253,9 @@ export function serializeAnnouncement(
     author: serializeUser(a.author),
     createdAt: new Date(a.createdAt as Date).toISOString(),
     scheduledFor: a.scheduledFor ? new Date(a.scheduledFor as Date).toISOString() : null,
+    publishedAt: a.publishedAt ? new Date(a.publishedAt as Date).toISOString() : null,
+    serverId: (a.serverId as string | null) ?? null,
+    channelId: (a.channelId as string | null) ?? null,
   };
 }
 

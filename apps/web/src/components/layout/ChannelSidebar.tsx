@@ -9,6 +9,7 @@ import { ChannelNotifyMode, type Channel } from '@sydt/shared';
 import { ChannelNotifyContextMenu } from '@/components/channels/ChannelNotifyContextMenu';
 import { channelsApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/query/client';
+import { useServerStore } from '@/store/server';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { useUIStore } from '@/store/ui';
@@ -31,17 +32,18 @@ export function ChannelSidebar() {
   const channelsDrawerOpen = useUIStore((s) => s.channelsDrawerOpen);
   const setChannelsDrawerOpen = useUIStore((s) => s.setChannelsDrawerOpen);
   const queryClient = useQueryClient();
+  const activeServerId = useServerStore((s) => s.activeServerId);
 
   const notifyMut = useMutation({
     mutationFn: ({ channelId, mode }: { channelId: string; mode: ChannelNotifyMode }) =>
       channelsApi.setChannelNotify(channelId, mode),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.channels }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.channelsAll }),
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.channels,
-    queryFn: channelsApi.list,
-    enabled: !!user,
+    queryKey: queryKeys.channels(activeServerId ?? ''),
+    queryFn: () => channelsApi.list(activeServerId!),
+    enabled: !!user && !!activeServerId,
     staleTime: 60_000,
   });
 

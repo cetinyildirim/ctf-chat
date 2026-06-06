@@ -10,6 +10,7 @@ import { logoImageUpload } from '../../lib/upload.js';
 import { removeLogoFiles, writeLogoFile } from '../../lib/logo-files.js';
 import { emitChannelsRefresh } from '../../realtime/broadcasters.js';
 import { provisionTeamRoomsForCategory } from './category-team-rooms.service.js';
+import { assertPlatformAdminForServer, assertPlatformAdminForCategory } from '../../lib/server-admin-scope.js';
 
 const router: Router = Router();
 
@@ -22,7 +23,12 @@ router.post(
   async (req, res, next) => {
     try {
       const data = req.body as ReturnType<typeof schemas.createCategorySchema.parse>;
-      const maxPos = await prisma.category.findFirst({ orderBy: { position: 'desc' } });
+      const me = req.user!;
+      await assertPlatformAdminForServer(me.id, data.serverId, me.role);
+      const maxPos = await prisma.category.findFirst({
+        where: { serverId: data.serverId },
+        orderBy: { position: 'desc' },
+      });
       const position =
         data.position !== undefined ? data.position : (maxPos?.position ?? 0) + 1;
       const cat = await prisma.category.create({
@@ -30,11 +36,12 @@ router.post(
           name: data.name.trim(),
           position,
           staffOnly: data.staffOnly ?? false,
+          serverId: data.serverId,
         },
       });
       await provisionTeamRoomsForCategory(prisma, cat);
-      await audit({ actorId: req.user?.id, action: 'category.create', target: cat.id });
-      emitChannelsRefresh();
+      await audit({ actorId: me.id, action: 'category.create', target: cat.id });
+      emitChannelsRefresh(data.serverId);
       res.status(201).json({
         category: {
           id: cat.id,
@@ -58,6 +65,8 @@ router.patch(
     try {
       const id = req.params.id;
       if (!id) throw NotFound();
+      const me = req.user!;
+      const serverId = await assertPlatformAdminForCategory(me.id, id, me.role);
       const data = req.body as ReturnType<typeof schemas.updateCategorySchema.parse>;
       const cat = await prisma.category.update({
         where: { id },
@@ -67,8 +76,8 @@ router.patch(
           ...(data.staffOnly !== undefined ? { staffOnly: data.staffOnly } : {}),
         },
       });
-      await audit({ actorId: req.user?.id, action: 'category.update', target: id, meta: data });
-      emitChannelsRefresh();
+      await audit({ actorId: me.id, action: 'category.update', target: id, meta: data });
+      emitChannelsRefresh(serverId);
       res.json({
         category: {
           id: cat.id,
@@ -92,20 +101,20 @@ router.post(
     try {
       const id = req.params.id;
       if (!id) throw NotFound();
+      const me = req.user!;
+      const serverId = await assertPlatformAdminForCategory(me.id, id, me.role);
       const file = req.file;
       if (!file?.buffer?.length) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Image file required' } });
         return;
       }
-      const exists = await prisma.category.findUnique({ where: { id } });
-      if (!exists) throw NotFound('Category not found');
       const url = await writeLogoFile('category', id, file.buffer, file.originalname);
       const cat = await prisma.category.update({
         where: { id },
         data: { logoUrl: url },
       });
-      await audit({ actorId: req.user?.id, action: 'category.logo', target: id });
-      emitChannelsRefresh();
+      await audit({ actorId: me.id, action: 'category.logo', target: id });
+      emitChannelsRefresh(serverId);
       res.json({
         category: {
           id: cat.id,
@@ -128,11 +137,14 @@ router.delete(
     try {
       const id = req.params.id;
       if (!id) throw NotFound();
+      const me = req.user!;
       const exists = await prisma.category.findUnique({ where: { id } });
       if (!exists) throw NotFound('Category not found');
+      if (!exists.serverId) throw NotFound('Category has no server');
+      await assertPlatformAdminForServer(me.id, exists.serverId, me.role);
       await prisma.category.delete({ where: { id } });
-      await audit({ actorId: req.user?.id, action: 'category.delete', target: id, meta: { name: exists.name } });
-      emitChannelsRefresh();
+      await audit({ actorId: me.id, action: 'category.delete', target: id, meta: { name: exists.name } });
+      emitChannelsRefresh(exists.serverId);
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -147,15 +159,15 @@ router.delete(
     try {
       const id = req.params.id;
       if (!id) throw NotFound();
-      const exists = await prisma.category.findUnique({ where: { id } });
-      if (!exists) throw NotFound('Category not found');
+      const me = req.user!;
+      const serverId = await assertPlatformAdminForCategory(me.id, id, me.role);
       await removeLogoFiles('category', id);
       const cat = await prisma.category.update({
         where: { id },
         data: { logoUrl: null },
       });
-      await audit({ actorId: req.user?.id, action: 'category.logo.clear', target: id });
-      emitChannelsRefresh();
+      await audit({ actorId: me.id, action: 'category.logo.clear', target: id });
+      emitChannelsRefresh(serverId);
       res.json({
         category: {
           id: cat.id,

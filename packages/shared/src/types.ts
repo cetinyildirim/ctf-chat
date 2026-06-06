@@ -35,6 +35,7 @@ export interface SessionUser extends PublicUser {
 
 export interface Team {
   id: string;
+  serverId?: string;
   slug: string;
   name: string;
   tagline: string | null;
@@ -48,12 +49,43 @@ export interface Team {
   bloodCount: number;
 }
 
+export interface ChatServer {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  iconUrl: string | null;
+  bannerUrl: string | null;
+  position: number;
+}
+
+export interface ServerMemberProfile {
+  nickname: string | null;
+  avatarUrl: string | null;
+  displayName: string;
+  username: string;
+}
+
+export interface ServerInvite {
+  id: string;
+  code: string;
+  serverId: string;
+  channelId: string | null;
+  channelName: string | null;
+  creator: PublicUser;
+  uses: number;
+  maxUses: number | null;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
 export interface Category {
   id: string;
   name: string;
   position: number;
   logoUrl: string | null;
   staffOnly?: boolean;
+  serverId?: string | null;
 }
 
 export interface Channel {
@@ -70,6 +102,7 @@ export interface Channel {
   teamId: string | null;
   iconKey: string | null;
   logoUrl: string | null;
+  serverId?: string | null;
   /** For DIRECT_MESSAGE listings: the other participant */
   dmPeer?: PublicUser | null;
 }
@@ -84,6 +117,7 @@ export interface ChannelsListPayload {
     /** channelId → stored mode incl. DEFAULT / MUTED */
     overrides: Record<string, string>;
   };
+  serverNotifyMode?: string;
 }
 
 export interface FriendshipRow {
@@ -124,6 +158,31 @@ export interface Message {
   attachments: MessageAttachment[];
   reactions: MessageReaction[];
   mentions: string[];
+}
+
+export interface PinnedMessageEntry {
+  message: Message;
+  channelId: string;
+  channelName: string;
+  pinnedAt: string;
+}
+
+export interface PlatformPage {
+  id: string;
+  title: string;
+  slug: string;
+  content: string;
+  published: boolean;
+  createdAt: string;
+  updatedAt: string;
+  authorId: string | null;
+}
+
+export interface PinsByCategoryGroup {
+  categoryId: string | null;
+  categoryName: string;
+  categoryPosition: number;
+  pins: PinnedMessageEntry[];
 }
 
 export interface Challenge {
@@ -210,6 +269,53 @@ export interface Announcement {
   author: PublicUser;
   createdAt: string;
   scheduledFor: string | null;
+  publishedAt?: string | null;
+  serverId?: string | null;
+  channelId?: string | null;
+}
+
+export interface ServerIntegrations {
+  themePrimary: string | null;
+  themeAccent: string | null;
+  emailNotifyEnabled: boolean;
+  emailReplyTo: string | null;
+  ctfdBaseUrl: string | null;
+  ctfdAccessTokenConfigured: boolean;
+}
+
+export interface CtfdTeamStatsDto {
+  place: number | null;
+  score: number;
+  solves: number | null;
+  name: string | null;
+}
+
+export interface TeamCtfdLinkDto {
+  configured: boolean;
+  scoreboardUrl: string | null;
+  stats: CtfdTeamStatsDto | null;
+  linked: boolean;
+}
+
+export interface ServerRole {
+  id: string;
+  serverId: string;
+  name: string;
+  color: string;
+  position: number;
+  hoist: boolean;
+  permissions: Record<string, boolean>;
+  memberCount: number;
+}
+
+export interface ServerWebhook {
+  id: string;
+  serverId: string;
+  label: string;
+  url: string;
+  events: string[];
+  enabled: boolean;
+  createdAt: string;
 }
 
 export interface ScoreboardEntry {

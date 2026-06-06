@@ -21,9 +21,11 @@ import {
 } from '../../lib/platform-settings.js';
 import broadcastsAdminRouter from './broadcasts-admin.router.js';
 import reportsAdminRouter from './reports-admin.router.js';
+import pagesAdminRouter from './pages-admin.router.js';
 import { validate } from '../../middleware/validate.js';
 import { schemas } from '@sydt/shared';
 import { audit } from '../../lib/audit.js';
+import { adminMutationLimiter } from '../../middleware/ratelimit.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -33,6 +35,7 @@ const upload = multer({
 const router: Router = Router();
 
 router.use(requireAuth);
+router.use(adminMutationLimiter);
 
 router.get(
   '/runtime',
@@ -51,6 +54,7 @@ router.get(
 );
 
 router.use('/teams', teamsAdminRouter);
+router.use('/pages', pagesAdminRouter);
 
 router.use(requirePermission(Permission.ADMIN_DASHBOARD));
 
@@ -303,8 +307,18 @@ router.post('/import/ctfd', upload.single('file'), async (req, res, next) => {
       res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'CSV file required' } });
       return;
     }
+    const serverId = typeof req.body?.serverId === 'string' ? req.body.serverId.trim() : '';
+    if (!serverId) {
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'serverId required' } });
+      return;
+    }
+    const server = await prisma.chatServer.findUnique({ where: { id: serverId } });
+    if (!server) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Server not found' } });
+      return;
+    }
     const text = file.buffer.toString('utf8');
-    const stats = await importCtfdChallengesCsv(text);
+    const stats = await importCtfdChallengesCsv(text, serverId);
     await audit({
       actorId: req.user?.id,
       action: 'admin.import.ctfd',
