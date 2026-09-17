@@ -4,7 +4,7 @@ import path from 'node:path';
 import multer from 'multer';
 import { nanoid } from 'nanoid';
 import { env } from '../env.js';
-import { isAllowedMessageUpload } from './allowed-upload.js';
+import { isAllowedMessageUpload, isAllowedTicketUpload } from './allowed-upload.js';
 
 export const UPLOAD_ROOT = path.resolve(process.cwd(), env.UPLOAD_DIR);
 
@@ -31,6 +31,22 @@ export const channelMessageUpload = multer({
   limits: { fileSize: maxBytes, files: 10 },
   fileFilter: (_req, file, cb) => {
     if (!isAllowedMessageUpload(file.mimetype)) {
+      cb(new Error('File type not allowed'));
+    } else {
+      cb(null, true);
+    }
+  },
+});
+
+/**
+ * Ticket evidence upload (field name: `files`, max 5 per request).
+ * The stricter ticket allowlist keeps media out of the ticket store.
+ */
+export const ticketAttachmentUpload = multer({
+  storage,
+  limits: { fileSize: maxBytes, files: 5 },
+  fileFilter: (_req, file, cb) => {
+    if (!isAllowedTicketUpload(file.mimetype)) {
       cb(new Error('File type not allowed'));
     } else {
       cb(null, true);

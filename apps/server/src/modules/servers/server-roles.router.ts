@@ -14,6 +14,7 @@ import {
 } from '../../lib/server-permissions.js';
 import { revokeAllRefreshTokens } from '../../lib/revoke-sessions.js';
 import { ensureServerDefaultRole } from '../../lib/ensure-server-default-role.js';
+import { ensureServerAdminRole } from '../../lib/ensure-server-admin-role.js';
 import { requireServerMember } from '../../lib/server-membership.js';
 import { serializeUser } from '../serializers.js';
 
@@ -60,6 +61,7 @@ router.get('/roles', validate(idSchema, 'params'), async (req, res, next) => {
     const canManage = await canManageServerRoles(me.id, serverId, pp);
     if (!canManage) await requireServerMember(me.id, serverId);
     await ensureServerDefaultRole(serverId);
+    await ensureServerAdminRole(serverId);
     const rows = await prisma.serverRole.findMany({
       where: { serverId },
       orderBy: { position: 'asc' },
@@ -170,6 +172,7 @@ router.get('/members/by-role', validate(idSchema, 'params'), async (req, res, ne
     if (!viewer) throw Forbidden();
 
     await ensureServerDefaultRole(serverId);
+    await ensureServerAdminRole(serverId);
     const roles = await prisma.serverRole.findMany({
       where: { serverId },
       orderBy: { position: 'desc' },

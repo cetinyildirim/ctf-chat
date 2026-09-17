@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Hash, Plus, ShieldAlert, UserRound, Users } from 'lucide-react';
+import { Hash, LifeBuoy, Plus, ShieldAlert, Trophy, UserRound, Users } from 'lucide-react';
 import { ChannelNotifyMode, Permission, type ChatServer } from '@sydt/shared';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -24,9 +24,83 @@ import { unwrapApiError } from '@/lib/api/axios';
 interface RailItem {
   href: string;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   permission?: Permission;
   match: (path: string) => boolean;
+  tone: RailNavTone;
+}
+
+type RailNavTone = 'violet' | 'emerald' | 'cyan' | 'amber' | 'rose';
+
+const railNavToneStyles: Record<
+  RailNavTone,
+  { idle: string; active: string; indicator: string }
+> = {
+  violet: {
+    idle: 'border-accent-violet/25 bg-accent-violet/12 text-accent-violet hover:border-accent-violet/40 hover:bg-accent-violet/18',
+    active: 'border-accent-violet/55 bg-accent-violet/22 text-accent-violet shadow-glow-violet',
+    indicator: 'bg-accent-violet',
+  },
+  emerald: {
+    idle: 'border-accent-emerald/25 bg-accent-emerald/12 text-accent-emerald hover:border-accent-emerald/40 hover:bg-accent-emerald/18',
+    active: 'border-accent-emerald/55 bg-accent-emerald/22 text-accent-emerald shadow-glow-emerald',
+    indicator: 'bg-accent-emerald',
+  },
+  cyan: {
+    idle: 'border-accent-cyan/25 bg-accent-cyan/12 text-accent-cyan hover:border-accent-cyan/40 hover:bg-accent-cyan/18',
+    active: 'border-accent-cyan/55 bg-accent-cyan/22 text-accent-cyan shadow-glow-cyan',
+    indicator: 'bg-accent-cyan',
+  },
+  amber: {
+    idle: 'border-accent-amber/25 bg-accent-amber/12 text-accent-amber hover:border-accent-amber/40 hover:bg-accent-amber/18',
+    active: 'border-accent-amber/55 bg-accent-amber/22 text-accent-amber shadow-glow-amber',
+    indicator: 'bg-accent-amber',
+  },
+  rose: {
+    idle: 'border-accent-rose/25 bg-accent-rose/12 text-accent-rose hover:border-accent-rose/40 hover:bg-accent-rose/18',
+    active: 'border-accent-rose/55 bg-accent-rose/22 text-accent-rose shadow-glow-rose',
+    indicator: 'bg-accent-rose',
+  },
+};
+
+function RailNavLink({
+  href,
+  label,
+  icon: Icon,
+  active,
+  tone,
+}: {
+  href: string;
+  label: string;
+  icon: RailItem['icon'];
+  active: boolean;
+  tone: RailNavTone;
+}) {
+  const styles = railNavToneStyles[tone];
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link
+          href={href}
+          className={cn(
+            'relative grid h-11 w-11 place-items-center rounded-xl border transition-all',
+            active ? styles.active : styles.idle,
+          )}
+        >
+          {active ? (
+            <span
+              className={cn(
+                'absolute -left-3 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full',
+                styles.indicator,
+              )}
+            />
+          ) : null}
+          <Icon className="h-5 w-5" strokeWidth={2.25} />
+        </Link>
+      </TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 function ServerIcon({ server, active }: { server: ChatServer; active: boolean }) {
@@ -110,12 +184,22 @@ export function ServerRail() {
 
   const navItems: RailItem[] = React.useMemo(
     () => [
-      { href: '/friends', label: t.railFriends, icon: UserRound, match: (p) => p.startsWith('/friends') },
-      { href: '/team', label: t.railTeam, icon: Users, match: (p) => p.startsWith('/team') },
+      { href: '/friends', label: t.railFriends, icon: UserRound, tone: 'emerald', match: (p) => p.startsWith('/friends') },
+      { href: '/team', label: t.railTeam, icon: Users, tone: 'cyan', match: (p) => p.startsWith('/team') },
+      { href: '/scoreboard', label: t.railScoreboard, icon: Trophy, tone: 'amber', match: (p) => p.startsWith('/scoreboard') },
+      {
+        href: '/tickets',
+        label: t.railTickets,
+        icon: LifeBuoy,
+        tone: 'rose',
+        permission: Permission.TICKET_VIEW_OWN,
+        match: (p) => p.startsWith('/tickets'),
+      },
       {
         href: '/admin',
         label: t.railAdmin,
         icon: ShieldAlert,
+        tone: 'violet',
         permission: Permission.ADMIN_DASHBOARD,
         match: (p) => p.startsWith('/admin'),
       },
@@ -167,44 +251,25 @@ export function ServerRail() {
         <div className="my-1 h-px w-8 bg-white/5" />
 
         <nav className="flex flex-col items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                href="/"
-                className={cn(
-                  'grid h-11 w-11 place-items-center rounded-xl border transition-all',
-                  pathname === '/' || pathname.startsWith('/channels')
-                    ? 'border-accent-violet/40 bg-accent-violet/10 text-accent-violet'
-                    : 'border-transparent bg-white/[0.03] text-fg-subtle hover:bg-white/8',
-                )}
-              >
-                <Hash className="h-5 w-5" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t.railChat}</TooltipContent>
-          </Tooltip>
+          <RailNavLink
+            href="/"
+            label={t.railChat}
+            icon={Hash}
+            tone="violet"
+            active={pathname === '/' || pathname.startsWith('/channels')}
+          />
 
           {navItems.map((item) => {
             if (item.permission && !user?.permissions.includes(item.permission)) return null;
-            const Icon = item.icon;
-            const active = item.match(pathname);
             return (
-              <Tooltip key={item.href}>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      'grid h-11 w-11 place-items-center rounded-xl border transition-all',
-                      active
-                        ? 'border-accent-cyan/40 bg-accent-cyan/10 text-accent-cyan'
-                        : 'border-transparent bg-white/[0.03] text-fg-subtle hover:bg-white/8',
-                    )}
-                  >
-                    <Icon className="h-5 w-5" />
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="right">{item.label}</TooltipContent>
-              </Tooltip>
+              <RailNavLink
+                key={item.href}
+                href={item.href}
+                label={item.label}
+                icon={item.icon}
+                tone={item.tone}
+                active={item.match(pathname)}
+              />
             );
           })}
         </nav>

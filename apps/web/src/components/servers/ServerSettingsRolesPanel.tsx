@@ -129,7 +129,7 @@ export function ServerSettingsRolesPanel({ serverId }: { serverId: string }) {
   if (isLoading) return <p className="text-sm text-fg-subtle">{t.loading}</p>;
 
   return (
-    <div className="mx-auto flex min-h-[24rem] max-w-4xl gap-4">
+    <div className="mx-auto flex min-h-[24rem] w-full gap-4">
       <aside className="flex w-52 shrink-0 flex-col gap-2">
         <Button
           type="button"

@@ -10,6 +10,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { GlassPanel } from '@/components/common/GlassPanel';
 import { Button } from '@/components/ui/button';
 import { useNotificationStore } from '@/store/notifications';
+import { useNotificationSync } from '@/lib/notifications/use-notification-sync';
 import { announcementsApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/query/client';
 import { useI18n } from '@/components/providers/LocaleProvider';
@@ -24,8 +25,8 @@ function NotificationsPageInner() {
   const highlightId = params.get('announcement');
 
   const items = useNotificationStore((s) => s.items);
-  const markAllRead = useNotificationStore((s) => s.markAllRead);
-  const markRead = useNotificationStore((s) => s.markRead);
+  // Reads are persisted server-side, so the inbox survives a reload.
+  const { markRead, markAllRead } = useNotificationSync();
 
   const { data: announcements = [] } = useQuery({
     queryKey: queryKeys.notificationsFeed,

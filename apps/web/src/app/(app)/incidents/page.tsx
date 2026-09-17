@@ -19,6 +19,7 @@ import { relative } from '@/lib/format/time';
 import { cn } from '@/lib/utils';
 import { Permission } from '@sydt/shared';
 import { useAuthStore } from '@/store/auth';
+import { useServerStore } from '@/store/server';
 import { useI18n } from '@/components/providers/LocaleProvider';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -31,12 +32,13 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function IncidentsPage() {
   const me = useAuthStore((s) => s.user);
+  const activeServerId = useServerStore((s) => s.activeServerId);
   const allowed = !!me?.permissions.includes(Permission.INCIDENT_VIEW);
   const { t } = useI18n();
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.incidents,
-    queryFn: incidentsApi.list,
+    queryKey: queryKeys.incidents(activeServerId ?? undefined),
+    queryFn: () => incidentsApi.list(activeServerId ?? undefined),
     enabled: allowed,
   });
 

@@ -159,7 +159,8 @@ router.delete('/:id', validate(idSchema, 'params'), async (req, res, next) => {
       await prisma.user.findMany({ where: { teamId: id }, select: { id: true } })
     ).map((u) => u.id);
 
-    await prisma.channel.deleteMany({ where: { teamId: id, type: 'TEAM_PRIVATE' } });
+    await prisma.channel.deleteMany({ where: { teamId: id } });
+    await prisma.category.deleteMany({ where: { teamId: id } });
     await prisma.user.updateMany({
       where: { teamId: id, role: Role.TEAM_CAPTAIN },
       data: { role: Role.TEAM_MEMBER },

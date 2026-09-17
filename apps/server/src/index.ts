@@ -3,11 +3,9 @@ import { env } from './env.js';
 import { logger } from './lib/logger.js';
 import { createApp } from './app.js';
 import { createSocketServer } from './socket.js';
-import { getScoreboard } from './modules/scoreboard/scoreboard.service.js';
-import { emitScoreboardUpdate } from './realtime/broadcasters.js';
 import { prisma } from './prisma.js';
 import { warmPlatformSettingsCache } from './lib/platform-settings.js';
-import { ensureDefaultChatServer } from './lib/migrate-default-server.js';
+import { ensureDefaultChatServer, backfillIncidentServerIds } from './lib/migrate-default-server.js';
 import { publishDueAnnouncements } from './lib/announcement-publish.js';
 
 async function main() {
@@ -15,26 +13,24 @@ async function main() {
   await ensureDefaultChatServer().catch((err) => {
     logger.warn({ err }, 'default server migration skipped');
   });
+
+  // One-shot legacy team-room cleanup (not on GET /channels).
+  const { provisionTeamRoomsForNonStaffCategories } = await import(
+    './modules/categories/category-team-rooms.service.js'
+  );
+  await provisionTeamRoomsForNonStaffCategories(prisma).catch((err) => {
+    logger.warn({ err }, 'team workspace migration skipped');
+  });
+  await backfillIncidentServerIds().catch((err) => {
+    logger.warn({ err }, 'incident serverId backfill skipped');
+  });
+
   const app = createApp();
   const httpServer = http.createServer(app);
   const io = createSocketServer(httpServer);
 
-  let lastSerialized = '';
-  setInterval(async () => {
-    try {
-      if (io.engine.clientsCount === 0) return;
-      const snap = await getScoreboard();
-      const fingerprint = snap.entries
-        .map((e) => `${e.team.id}:${e.score}:${e.rank}`)
-        .join('|');
-      if (fingerprint !== lastSerialized) {
-        lastSerialized = fingerprint;
-        emitScoreboardUpdate(snap.entries);
-      }
-    } catch (err) {
-      logger.warn({ err }, 'scoreboard poll failed');
-    }
-  }, 10_000).unref?.();
+  // Global scoreboard poller removed — UI uses per-server CTFd scoreboard.
+  // Legacy /scoreboard REST remains for challenges page; no realtime fanout.
 
   setInterval(() => {
     void publishDueAnnouncements().catch((err) => logger.warn({ err }, 'announcement scheduler failed'));

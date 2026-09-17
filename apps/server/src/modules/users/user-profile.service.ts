@@ -39,20 +39,42 @@ export async function buildUserProfileCard(viewerId: string, targetUserId: strin
         })
       : [];
 
-  const viewer = await prisma.user.findUnique({
-    where: { id: viewerId },
-    select: { teamId: true },
+  const viewerMemberships = await prisma.serverTeamMember.findMany({
+    where: { userId: viewerId },
+    select: { serverId: true, teamId: true },
   });
 
   let sharedChannels: { id: string; name: string; type: string }[] = [];
-  if (viewer?.teamId && target.teamId && viewer.teamId === target.teamId) {
-    const teamChannels = await prisma.channel.findMany({
-      where: { teamId: viewer.teamId, type: 'TEAM_PRIVATE' },
-      select: { id: true, name: true, type: true },
-      orderBy: { name: 'asc' },
-      take: 30,
+  let sharedTeam: { id: string; name: string; color: string } | null = null;
+
+  if (viewerMemberships.length > 0) {
+    const sharedMembership = await prisma.serverTeamMember.findFirst({
+      where: {
+        userId: targetUserId,
+        OR: viewerMemberships.map((m) => ({ serverId: m.serverId, teamId: m.teamId })),
+      },
+      include: { team: true },
     });
-    sharedChannels = teamChannels;
+    if (sharedMembership) {
+      sharedTeam = {
+        id: sharedMembership.team.id,
+        name: sharedMembership.team.name,
+        color: sharedMembership.team.color,
+      };
+      const teamChannels = await prisma.channel.findMany({
+        where: {
+          OR: [
+            { teamId: sharedMembership.teamId, type: 'TEAM_PRIVATE' },
+            { category: { teamId: sharedMembership.teamId } },
+          ],
+          serverId: sharedMembership.serverId,
+        },
+        select: { id: true, name: true, type: true },
+        orderBy: { name: 'asc' },
+        take: 30,
+      });
+      sharedChannels = teamChannels;
+    }
   }
 
   const publicChannels = await prisma.channel.findMany({
@@ -91,10 +113,7 @@ export async function buildUserProfileCard(viewerId: string, targetUserId: strin
         }
       : null,
     mutualFriends: mutualUsers.map(serializeUser),
-    sharedTeam:
-      viewer?.teamId && target.teamId && viewer.teamId === target.teamId && target.team
-        ? { id: target.team.id, name: target.team.name, color: target.team.color }
-        : null,
+    sharedTeam,
     teamChannels: sharedChannels,
     platformChannels: publicChannels,
     isSelf: viewerId === targetUserId,

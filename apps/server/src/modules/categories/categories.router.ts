@@ -9,7 +9,6 @@ import { audit } from '../../lib/audit.js';
 import { logoImageUpload } from '../../lib/upload.js';
 import { removeLogoFiles, writeLogoFile } from '../../lib/logo-files.js';
 import { emitChannelsRefresh } from '../../realtime/broadcasters.js';
-import { provisionTeamRoomsForCategory } from './category-team-rooms.service.js';
 import { assertPlatformAdminForServer, assertPlatformAdminForCategory } from '../../lib/server-admin-scope.js';
 
 const router: Router = Router();
@@ -39,7 +38,6 @@ router.post(
           serverId: data.serverId,
         },
       });
-      await provisionTeamRoomsForCategory(prisma, cat);
       await audit({ actorId: me.id, action: 'category.create', target: cat.id });
       emitChannelsRefresh(data.serverId);
       res.status(201).json({

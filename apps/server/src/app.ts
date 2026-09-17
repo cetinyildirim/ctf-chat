@@ -18,6 +18,7 @@ import channelsRouter from './modules/channels/channels.router.js';
 import messagesRouter from './modules/messages/messages.router.js';
 import challengesRouter from './modules/challenges/challenges.router.js';
 import ticketsRouter from './modules/tickets/tickets.router.js';
+import notificationsRouter from './modules/notifications/notifications.router.js';
 import incidentsRouter from './modules/incidents/incidents.router.js';
 import announcementsRouter from './modules/announcements/announcements.router.js';
 import adminRouter from './modules/admin/admin.router.js';
@@ -85,6 +86,7 @@ export function createApp(): Express {
   app.use('/api', messagesRouter);
   app.use('/api/challenges', challengesRouter);
   app.use('/api/tickets', ticketsRouter);
+  app.use('/api/notifications', notificationsRouter);
   app.use('/api/incidents', incidentsRouter);
   app.use('/api/announcements', announcementsRouter);
   app.use('/api/admin', adminRouter);

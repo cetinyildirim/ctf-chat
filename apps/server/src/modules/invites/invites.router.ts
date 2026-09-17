@@ -9,6 +9,7 @@ import { emitChannelsRefresh } from '../../realtime/broadcasters.js';
 import { assertUserCanUsePlatform } from '../../lib/user-moderation.js';
 import { assignDefaultRoleToMember } from '../../lib/assign-default-server-role.js';
 import { inviteAcceptLimiter } from '../../middleware/ratelimit.js';
+import { serverMemberJoinFields } from '../../lib/server-membership.js';
 
 const router: Router = Router();
 
@@ -99,9 +100,10 @@ router.post('/:code/accept', inviteAcceptLimiter, validate(codeSchema, 'params')
     if (existing?.bannedAt) throw Forbidden('You are banned from this server');
 
     if (!existing) {
+      const joinFields = await serverMemberJoinFields(row.serverId);
       await prisma.$transaction([
         prisma.serverMember.create({
-          data: { userId, serverId: row.serverId },
+          data: { userId, serverId: row.serverId, ...joinFields },
         }),
         prisma.serverInvite.update({
           where: { id: row.id },

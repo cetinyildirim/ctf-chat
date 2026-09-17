@@ -27,6 +27,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { useAuthStore } from '@/store/auth';
 import { useUIStore } from '@/store/ui';
 import { useNotificationStore } from '@/store/notifications';
+import { useNotificationSync } from '@/lib/notifications/use-notification-sync';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { authApi } from '@/lib/api/endpoints';
 import { disconnectSocket } from '@/lib/socket/client';
@@ -35,6 +36,7 @@ import { KbdHint } from '@/components/common/KbdHint';
 import { cn } from '@/lib/utils';
 import { relative } from '@/lib/format/time';
 import { requestBrowserPermission } from '@/lib/notifications/browser';
+import { playSoundFromUserGesture } from '@/lib/notifications/sound';
 import { toast } from 'sonner';
 import Link from 'next/link';
 import { useI18n } from '@/components/providers/LocaleProvider';
@@ -50,7 +52,8 @@ export function TopBar({ title, subtitle, right }: { title?: React.ReactNode; su
   const dnd = useNotificationStore((s) => s.dnd);
   const setSoundEnabled = useNotificationStore((s) => s.setSoundEnabled);
   const setDnd = useNotificationStore((s) => s.setDnd);
-  const markAllRead = useNotificationStore((s) => s.markAllRead);
+  // Hydrates the bell from the durable inbox and persists read state.
+  const { markAllRead } = useNotificationSync();
   const clearAuth = useAuthStore((s) => s.clear);
 
   const logout = async () => {
@@ -168,7 +171,15 @@ export function TopBar({ title, subtitle, right }: { title?: React.ReactNode; su
             </Link>
           </div>
           <div className="flex items-center justify-between gap-2 border-t border-white/8 px-3 py-2 text-[11px]">
-            <button onClick={() => setSoundEnabled(!soundEnabled)} className="inline-flex items-center gap-1 text-fg-subtle hover:text-fg">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !soundEnabled;
+                setSoundEnabled(next);
+                if (next) playSoundFromUserGesture('ticket');
+              }}
+              className="inline-flex items-center gap-1 text-fg-subtle hover:text-fg"
+            >
               {soundEnabled ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
               {soundEnabled ? t.notificationsSoundOn : t.notificationsSoundOff}
             </button>

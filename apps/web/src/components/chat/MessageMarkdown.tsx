@@ -40,14 +40,17 @@ export function MessageMarkdown({ content, allowHtml }: Props) {
         remarkPlugins={[remarkGfm]}
         rehypePlugins={rehypePlugins as React.ComponentProps<typeof ReactMarkdown>['rehypePlugins']}
         components={{
-          code({ inline, className, children, ...props }: {
-            inline?: boolean;
+          // Fenced blocks are `pre > code`. Unwrap `pre` so CodeBlock's outer <div> is valid HTML.
+          pre: ({ children }) => <>{children}</>,
+          code({ className, children, ...props }: {
             className?: string;
             children?: React.ReactNode;
           } & React.HTMLAttributes<HTMLElement>) {
             const match = /language-(\w+)/.exec(className ?? '');
             const text = String(children ?? '').replace(/\n$/, '');
-            if (inline) {
+            // react-markdown v9 no longer passes `inline`; treat language class / newlines as block.
+            const isBlock = Boolean(className) || text.includes('\n');
+            if (!isBlock) {
               return (
                 <code className={className} {...props}>
                   {text}

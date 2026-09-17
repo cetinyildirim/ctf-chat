@@ -59,6 +59,7 @@ const config: Config = {
         'glow-cyan': '0 0 0 1px rgba(34,211,238,0.4), 0 0 24px -4px rgba(34,211,238,0.45)',
         'glow-violet': '0 0 0 1px rgba(167,139,250,0.4), 0 0 24px -4px rgba(167,139,250,0.45)',
         'glow-emerald': '0 0 0 1px rgba(52,211,153,0.4), 0 0 24px -4px rgba(52,211,153,0.45)',
+        'glow-amber': '0 0 0 1px rgba(251,191,36,0.45), 0 0 24px -4px rgba(251,191,36,0.5)',
         'glow-rose': '0 0 0 1px rgba(251,113,133,0.4), 0 0 24px -4px rgba(251,113,133,0.45)',
         glass: '0 1px 0 rgba(255,255,255,0.05) inset, 0 12px 32px -16px rgba(0,0,0,0.6)',
       },

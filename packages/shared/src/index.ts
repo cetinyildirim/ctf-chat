@@ -6,4 +6,4 @@ export * from './server-permissions';
 export * from './types';
 export * from './socket-events';
 export * as schemas from './schemas/index';
-export type { PlatformBranding } from './schemas/platform';
+export type { PlatformBranding, RegistrationSettings } from './schemas/platform';

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell, Megaphone, Palette, Trash2, Webhook, Trophy } from 'lucide-react';
+import { Bell, Check, Loader2, Megaphone, Palette, Trash2, Webhook, Trophy } from 'lucide-react';
 import { Permission } from '@sydt/shared';
 import { useI18n } from '@/components/providers/LocaleProvider';
 import { useAuthStore } from '@/store/auth';
@@ -58,6 +58,7 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
   const [whUrl, setWhUrl] = React.useState('');
   const [ctfdBaseUrl, setCtfdBaseUrl] = React.useState('');
   const [ctfdAccessToken, setCtfdAccessToken] = React.useState('');
+  const [tokenEditing, setTokenEditing] = React.useState(false);
 
   React.useEffect(() => {
     if (!integrations) return;
@@ -66,8 +67,135 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
     setEmailEnabled(integrations.emailNotifyEnabled);
     setEmailReplyTo(integrations.emailReplyTo ?? '');
     setCtfdBaseUrl(integrations.ctfdBaseUrl ?? '');
-    setCtfdAccessToken('');
-  }, [integrations]);
+    if (!tokenEditing) setCtfdAccessToken('');
+  }, [integrations, tokenEditing]);
+
+  React.useEffect(() => {
+    if (!integrations?.ctfdAccessTokenConfigured) setTokenEditing(false);
+  }, [integrations?.ctfdAccessTokenConfigured]);
+
+  const tokenConfigured = integrations?.ctfdAccessTokenConfigured ?? false;
+  const hasTokenForTest = ctfdAccessToken.trim().length > 0 || tokenConfigured;
+  const storedCtfdUrl = integrations?.ctfdBaseUrl?.trim() ?? '';
+  const ctfdUrlDirty = (ctfdBaseUrl.trim() || null) !== (storedCtfdUrl || null);
+  const canSaveCtfd = ctfdUrlDirty || ctfdAccessToken.trim().length > 0 || tokenEditing;
+  const clearingCtfd = storedCtfdUrl.length > 0 && !ctfdBaseUrl.trim();
+
+  const patchBrandingMut = useMutation({
+    mutationFn: () =>
+      serversApi.patchIntegrations(serverId, {
+        themePrimary,
+        themeAccent,
+        emailNotifyEnabled: emailEnabled,
+        emailReplyTo: emailReplyTo.trim() || null,
+      }),
+    onSuccess: () => {
+      toast.success(t.serverIntegrationsSaved);
+      void qc.invalidateQueries({ queryKey: queryKeys.serverIntegrations(serverId) });
+    },
+    onError: (err) => toast.error(unwrapApiError(err).message),
+  });
+
+  const ctfdSaveMut = useMutation({
+    mutationFn: () => {
+      const nextUrl = ctfdBaseUrl.trim() || null;
+      return serversApi.patchIntegrations(serverId, {
+        ctfdBaseUrl: nextUrl,
+        ...(nextUrl
+          ? ctfdAccessToken.trim()
+            ? { ctfdAccessToken: ctfdAccessToken.trim() }
+            : {}
+          : { ctfdAccessToken: null }),
+      });
+    },
+    onSuccess: () => {
+      toast.success(clearingCtfd ? t.serverIntegration_ctfdRemoved : t.serverIntegration_ctfdSaved);
+      setTokenEditing(false);
+      setCtfdAccessToken('');
+      void qc.invalidateQueries({ queryKey: queryKeys.serverIntegrations(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverCtfdScoreboard(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverCtfdStats(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverScoreboard(serverId) });
+      void qc.removeQueries({ queryKey: queryKeys.serverCtfdScoreboard(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverScoreboard(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverScoreboardTimeline(serverId) });
+      void qc.removeQueries({ queryKey: queryKeys.serverCtfdScoreboard(serverId) });
+      void qc.removeQueries({ queryKey: queryKeys.serverCtfdStats(serverId) });
+    },
+    onError: (err) => toast.error(unwrapApiError(err).message),
+  });
+
+  const ctfdDisconnectMut = useMutation({
+    mutationFn: () =>
+      serversApi.patchIntegrations(serverId, { ctfdBaseUrl: null, ctfdAccessToken: null }),
+    onSuccess: () => {
+      toast.success(t.serverIntegration_ctfdRemoved);
+      setCtfdBaseUrl('');
+      setCtfdAccessToken('');
+      setTokenEditing(false);
+      void qc.invalidateQueries({ queryKey: queryKeys.serverIntegrations(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverCtfdScoreboard(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverCtfdStats(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverScoreboard(serverId) });
+      void qc.removeQueries({ queryKey: queryKeys.serverCtfdScoreboard(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverScoreboard(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverScoreboardTimeline(serverId) });
+      void qc.removeQueries({ queryKey: queryKeys.serverCtfdScoreboard(serverId) });
+      void qc.removeQueries({ queryKey: queryKeys.serverCtfdStats(serverId) });
+    },
+    onError: (err) => toast.error(unwrapApiError(err).message),
+  });
+
+  const ctfdClearTokenMut = useMutation({
+    mutationFn: () => serversApi.patchIntegrations(serverId, { ctfdAccessToken: null }),
+    onSuccess: () => {
+      toast.success(t.serverIntegration_ctfdTokenRemoved);
+      setTokenEditing(false);
+      setCtfdAccessToken('');
+      void qc.invalidateQueries({ queryKey: queryKeys.serverIntegrations(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverCtfdScoreboard(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverCtfdStats(serverId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverScoreboard(serverId) });
+      void qc.removeQueries({ queryKey: queryKeys.serverCtfdScoreboard(serverId) });
+    },
+    onError: (err) => toast.error(unwrapApiError(err).message),
+  });
+
+  const ctfdTestMut = useMutation({
+    mutationFn: () => {
+      const url = ctfdBaseUrl.trim() || integrations?.ctfdBaseUrl?.trim();
+      if (!url) throw new Error(t.serverIntegration_ctfdTestNeedUrl);
+      return serversApi.testCtfdConnection(serverId, {
+        ctfdBaseUrl: ctfdBaseUrl.trim() || undefined,
+        ...(ctfdAccessToken.trim() ? { ctfdAccessToken: ctfdAccessToken.trim() } : {}),
+      });
+    },
+    onSuccess: (result) => {
+      if (result.ok) {
+        toast.success(
+          t.serverIntegration_ctfdTestOk.replace('{{count}}', String(result.teamCount ?? 0)),
+        );
+        void qc.invalidateQueries({ queryKey: queryKeys.serverCtfdScoreboard(serverId) });
+        void qc.removeQueries({ queryKey: queryKeys.serverCtfdScoreboard(serverId) });
+        return;
+      }
+      const msg =
+        result.code === 'token_required'
+          ? t.serverIntegration_ctfdTestNeedToken
+          : result.code === 'auth_failed'
+            ? t.serverIntegration_ctfdTestAuthFailed
+            : result.code === 'unreachable'
+              ? t.serverIntegration_ctfdTestUnreachable
+              : result.code === 'invalid_url'
+                ? t.serverIntegration_ctfdTestInvalidUrl
+                : t.serverIntegration_ctfdTestError;
+      toast.error(msg);
+    },
+    onError: (err) => toast.error(unwrapApiError(err).message),
+  });
+
+  const ctfdBusy =
+    ctfdSaveMut.isPending || ctfdClearTokenMut.isPending || ctfdTestMut.isPending || ctfdDisconnectMut.isPending;
 
   React.useEffect(() => {
     if (!canManage || !integrations) return;
@@ -79,23 +207,6 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
       root.style.setProperty('--server-accent', integrations.themeAccent);
     }
   }, [integrations, activeServerId, serverId, canManage]);
-
-  const patchIntMut = useMutation({
-    mutationFn: () =>
-      serversApi.patchIntegrations(serverId, {
-        themePrimary,
-        themeAccent,
-        emailNotifyEnabled: emailEnabled,
-        emailReplyTo: emailReplyTo.trim() || null,
-        ctfdBaseUrl: ctfdBaseUrl.trim() || null,
-        ...(ctfdAccessToken.trim() ? { ctfdAccessToken: ctfdAccessToken.trim() } : {}),
-      }),
-    onSuccess: () => {
-      toast.success(t.serverIntegrationsSaved);
-      void qc.invalidateQueries({ queryKey: queryKeys.serverIntegrations(serverId) });
-    },
-    onError: (err) => toast.error(unwrapApiError(err).message),
-  });
 
   const annMut = useMutation({
     mutationFn: () =>
@@ -139,7 +250,7 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
   if (intLoading) return <p className="text-sm text-fg-subtle">{t.loading}</p>;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-8">
+    <div className="w-full space-y-8">
       <section className="space-y-3 rounded-lg border border-white/8 bg-white/[0.02] p-4">
         <div className="flex items-center gap-2">
           <Megaphone className="h-5 w-5 text-accent-cyan" />
@@ -235,18 +346,111 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
                 value={ctfdBaseUrl}
                 onChange={(e) => setCtfdBaseUrl(e.target.value)}
                 placeholder="https://ctf.example.com"
+                disabled={ctfdBusy}
               />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label className="text-[10px] uppercase text-muted-fg">{t.serverIntegration_ctfdToken}</Label>
-              <Input
-                type="password"
-                value={ctfdAccessToken}
-                onChange={(e) => setCtfdAccessToken(e.target.value)}
-                placeholder={integrations?.ctfdAccessTokenConfigured ? '••••••••' : ''}
-                autoComplete="off"
-              />
+              {tokenConfigured && !tokenEditing ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-accent-emerald/30 bg-accent-emerald/10 px-2.5 py-1 text-xs font-medium text-accent-emerald">
+                    <Check className="h-3.5 w-3.5" aria-hidden />
+                    {t.serverIntegration_ctfdTokenSaved}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={ctfdBusy}
+                    onClick={() => {
+                      setTokenEditing(true);
+                      setCtfdAccessToken('');
+                    }}
+                  >
+                    {t.serverIntegration_ctfdTokenChange}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="text-accent-rose hover:text-accent-rose"
+                    disabled={ctfdBusy}
+                    onClick={() => ctfdClearTokenMut.mutate()}
+                  >
+                    {t.serverIntegration_ctfdTokenRemove}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Input
+                    type="password"
+                    value={ctfdAccessToken}
+                    onChange={(e) => setCtfdAccessToken(e.target.value)}
+                    placeholder={tokenEditing ? t.serverIntegration_ctfdTokenChange : ''}
+                    autoComplete="off"
+                    disabled={ctfdBusy}
+                  />
+                  {tokenEditing && tokenConfigured ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={ctfdBusy}
+                      onClick={() => {
+                        setTokenEditing(false);
+                        setCtfdAccessToken('');
+                      }}
+                    >
+                      {t.serverIntegration_ctfdCancelEdit}
+                    </Button>
+                  ) : null}
+                </div>
+              )}
               <p className="text-[11px] text-muted-fg">{t.serverIntegration_ctfdTokenHint}</p>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                disabled={ctfdBusy || !canSaveCtfd}
+                onClick={() => ctfdSaveMut.mutate()}
+              >
+                {ctfdSaveMut.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {clearingCtfd ? t.serverIntegration_ctfdSaveClear : t.serverIntegration_ctfdSave}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={
+                  ctfdBusy ||
+                  (!ctfdBaseUrl.trim() && !integrations?.ctfdBaseUrl) ||
+                  !hasTokenForTest
+                }
+                onClick={() => ctfdTestMut.mutate()}
+              >
+                {ctfdTestMut.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {t.serverIntegration_ctfdTest}
+              </Button>
+              {storedCtfdUrl || tokenConfigured ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="text-accent-rose hover:text-accent-rose"
+                  disabled={ctfdBusy}
+                  onClick={() => ctfdDisconnectMut.mutate()}
+                >
+                  {ctfdDisconnectMut.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  {t.serverIntegration_ctfdDisconnect}
+                </Button>
+              ) : null}
             </div>
           </section>
 
@@ -258,7 +462,7 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
             <p className="text-xs text-fg-subtle">{t.serverIntegration_branding_desc}</p>
             <ColorPalettePicker value={themePrimary} onChange={setThemePrimary} label={t.serverThemePrimary} />
             <ColorPalettePicker value={themeAccent} onChange={setThemeAccent} label={t.serverThemeAccent} />
-            <Button type="button" size="sm" disabled={patchIntMut.isPending} onClick={() => patchIntMut.mutate()}>
+            <Button type="button" size="sm" disabled={patchBrandingMut.isPending} onClick={() => patchBrandingMut.mutate()}>
               {t.serverIntegrationsSave}
             </Button>
           </section>

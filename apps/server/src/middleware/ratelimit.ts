@@ -60,6 +60,26 @@ export const fileDownloadLimiter = rateLimit({
   message: { error: { code: 'RATE_LIMIT', message: 'Too many file downloads, slow down.' } },
 });
 
+/** Ticket creation is cheap to abuse and expensive for organizers to triage. */
+export const ticketCreateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { error: { code: 'RATE_LIMIT', message: 'Too many tickets opened, slow down.' } },
+});
+
+/** Ticket replies are message-shaped, so they get message-shaped limits. */
+export const ticketReplyLimiter = rateLimit({
+  windowMs: 10_000,
+  limit: 15,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { error: { code: 'RATE_LIMIT', message: 'Slow down - too many replies.' } },
+});
+
 export const sensitiveAuthLimiter = rateLimit({
   windowMs: 15 * 60_000,
   limit: 5,

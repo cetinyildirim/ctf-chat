@@ -3,13 +3,17 @@ import type {
   Channel,
   Challenge,
   ChallengeHint,
+  CompetitionSettingsDto,
   Incident,
   Message,
+  NotificationDto,
   PublicUser,
   ScoreboardEntry,
   Team,
   Ticket,
+  TicketCategoryDto,
   TicketEvent,
+  TicketTagDto,
 } from '@sydt/shared';
 import { type Role } from '@sydt/shared';
 
@@ -176,24 +180,73 @@ export function serializeHint(
   };
 }
 
+export function serializeTicketCategory(c: AnyRecord): TicketCategoryDto {
+  return {
+    id: c.id as string,
+    key: c.key as string,
+    name: c.name as string,
+    position: (c.position as number) ?? 0,
+    isActive: (c.isActive as boolean) ?? true,
+    requiresChallenge: (c.requiresChallenge as boolean) ?? false,
+  };
+}
+
+export function serializeCompetition(c: AnyRecord): CompetitionSettingsDto {
+  return {
+    serverId: c.serverId as string,
+    startsAt: c.startsAt ? new Date(c.startsAt as Date).toISOString() : null,
+    endsAt: c.endsAt ? new Date(c.endsAt as Date).toISOString() : null,
+    timezone: (c.timezone as string) ?? 'Europe/Istanbul',
+    status: c.status as CompetitionSettingsDto['status'],
+    ticketPolicy: c.ticketPolicy as CompetitionSettingsDto['ticketPolicy'],
+    archivedAt: c.archivedAt ? new Date(c.archivedAt as Date).toISOString() : null,
+  };
+}
+
+export function serializeTicketTag(t: AnyRecord): TicketTagDto {
+  return {
+    id: t.id as string,
+    name: t.name as string,
+    color: (t.color as string) ?? '#a78bfa',
+  };
+}
+
 export function serializeTicket(
   t: AnyRecord & {
     openedBy: AnyRecord;
-    claimedBy?: AnyRecord | null;
+    assignedTo?: AnyRecord | null;
     team?: AnyRecord | null;
+    category?: AnyRecord | null;
+    challenge?: AnyRecord | null;
+    tags?: Array<{ tag: AnyRecord }> | null;
   },
+  ctx?: { unreadCount?: number; messageCount?: number; attachmentCount?: number },
 ): Ticket {
+  const assignedTo = t.assignedTo ? serializeUser(t.assignedTo) : null;
+  const priority = (t.priority as Ticket['priority']) ?? 'MEDIUM';
   return {
     id: t.id as string,
+    serverId: t.serverId as string,
     code: t.code as string,
+    seq: (t.seq as number) ?? 0,
     title: t.title as string,
     body: t.body as string,
     status: t.status as Ticket['status'],
-    severity: t.severity as Ticket['severity'],
+    priority,
+    severity: priority,
+    category: t.category ? serializeTicketCategory(t.category) : null,
     challengeId: (t.challengeId as string | null) ?? null,
+    challenge: t.challenge
+      ? {
+          id: t.challenge.id as string,
+          title: t.challenge.title as string,
+          category: (t.challenge.category as string) ?? '',
+        }
+      : null,
     channelId: (t.channelId as string | null) ?? null,
     openedBy: serializeUser(t.openedBy),
-    claimedBy: t.claimedBy ? serializeUser(t.claimedBy) : null,
+    assignedTo,
+    claimedBy: assignedTo,
     team: t.team
       ? {
           id: t.team.id as string,
@@ -201,13 +254,22 @@ export function serializeTicket(
           color: (t.team.color as string) ?? '#22d3ee',
         }
       : null,
+    tags: (t.tags ?? []).map((link) => serializeTicketTag(link.tag)),
     createdAt: new Date(t.createdAt as Date).toISOString(),
     updatedAt: new Date(t.updatedAt as Date).toISOString(),
-    unreadCount: 0,
+    firstResponseAt: t.firstResponseAt ? new Date(t.firstResponseAt as Date).toISOString() : null,
+    resolvedAt: t.resolvedAt ? new Date(t.resolvedAt as Date).toISOString() : null,
+    closedAt: t.closedAt ? new Date(t.closedAt as Date).toISOString() : null,
+    reopenCount: (t.reopenCount as number) ?? 0,
+    messageCount: ctx?.messageCount ?? 0,
+    attachmentCount: ctx?.attachmentCount ?? 0,
+    unreadCount: ctx?.unreadCount ?? 0,
   };
 }
 
-export function serializeTicketEvent(ev: AnyRecord & { author?: AnyRecord | null }): TicketEvent {
+export function serializeTicketEvent(
+  ev: AnyRecord & { author?: AnyRecord | null; attachments?: AnyRecord[] | null },
+): TicketEvent {
   let meta: Record<string, unknown> | null = null;
   try {
     meta = JSON.parse((ev.metaJson as string) ?? '{}');
@@ -221,8 +283,44 @@ export function serializeTicketEvent(ev: AnyRecord & { author?: AnyRecord | null
     author: ev.author ? serializeUser(ev.author) : null,
     body: (ev.body as string | null) ?? null,
     meta,
+    attachments: (ev.attachments ?? []).map((a) => ({
+      id: a.id as string,
+      name: a.name as string,
+      mimeType: a.mimeType as string,
+      size: (a.size as number) ?? 0,
+      url: a.url as string,
+      createdAt: new Date(a.createdAt as Date).toISOString(),
+    })),
     createdAt: new Date(ev.createdAt as Date).toISOString(),
   };
+}
+
+export function serializeNotification(n: AnyRecord): NotificationDto {
+  return {
+    id: n.id as string,
+    kind: n.kind as NotificationDto['kind'],
+    title: n.title as string,
+    body: (n.body as string) ?? '',
+    href: (n.href as string | null) ?? null,
+    refType: (n.refType as string | null) ?? null,
+    refId: (n.refId as string | null) ?? null,
+    serverId: (n.serverId as string | null) ?? null,
+    read: n.readAt != null,
+    createdAt: new Date(n.createdAt as Date).toISOString(),
+    meta: parseJsonObject(n.metaJson),
+  };
+}
+
+function parseJsonObject(raw: unknown): Record<string, unknown> {
+  if (typeof raw !== 'string' || !raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 export function serializeIncident(
@@ -239,6 +337,7 @@ export function serializeIncident(
     createdAt: new Date(i.createdAt as Date).toISOString(),
     resolvedAt: i.resolvedAt ? new Date(i.resolvedAt as Date).toISOString() : null,
     channelId: (i.channelId as string | null) ?? null,
+    serverId: (i.serverId as string | null) ?? null,
   };
 }
 
@@ -254,8 +353,10 @@ export function serializeAnnouncement(
     createdAt: new Date(a.createdAt as Date).toISOString(),
     scheduledFor: a.scheduledFor ? new Date(a.scheduledFor as Date).toISOString() : null,
     publishedAt: a.publishedAt ? new Date(a.publishedAt as Date).toISOString() : null,
+    expiresAt: a.expiresAt ? new Date(a.expiresAt as Date).toISOString() : null,
     serverId: (a.serverId as string | null) ?? null,
     channelId: (a.channelId as string | null) ?? null,
+    sourceTicketId: (a.sourceTicketId as string | null) ?? null,
   };
 }
 

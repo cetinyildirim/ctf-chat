@@ -14,7 +14,7 @@ async function main() {
     console.log(`  ${u.username} (${u.email}) role=${u.role} platformRole=${u.platformRole ?? 'null'}`);
   }
 
-  let toFix = users.filter(
+  const toFix = users.filter(
     (u) => u.role === Role.TEAM_CAPTAIN || u.role === Role.TEAM_MEMBER || !u.platformRole,
   );
 

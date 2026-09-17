@@ -28,6 +28,8 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
+import { useI18n } from '@/components/providers/LocaleProvider';
+import { ticketStatusLabel } from '@/i18n/ticket-labels';
 import { isStaff, Permission } from '@sydt/shared';
 
 export function CommandPalette() {
@@ -36,6 +38,7 @@ export function CommandPalette() {
   const setOpen = useUIStore((s) => s.setCommandOpen);
   const user = useAuthStore((s) => s.user);
   const activeServerId = useServerStore((s) => s.activeServerId);
+  const { t } = useI18n();
 
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -61,11 +64,13 @@ export function CommandPalette() {
     enabled: open && !!user,
   });
 
-  const { data: tickets } = useQuery({
-    queryKey: queryKeys.tickets,
-    queryFn: ticketsApi.list,
-    enabled: open && !!user,
+  const ticketFilters = { limit: 6 } as const;
+  const { data: ticketPage } = useQuery({
+    queryKey: queryKeys.tickets(activeServerId ?? '', ticketFilters),
+    queryFn: () => ticketsApi.list(activeServerId!, ticketFilters),
+    enabled: open && !!user && !!activeServerId,
   });
+  const tickets = ticketPage?.tickets;
 
   const go = (path: string) => {
     setOpen(false);
@@ -91,7 +96,7 @@ export function CommandPalette() {
             <Flag className="h-4 w-4 text-accent-emerald" /> Browse challenges
           </CommandItem>
           <CommandItem onSelect={() => go('/tickets')}>
-            <LifeBuoy className="h-4 w-4 text-accent-rose" /> View tickets
+            <LifeBuoy className="h-4 w-4 text-accent-rose" /> {t.ticketsTitle}
           </CommandItem>
           <CommandItem onSelect={() => go('/team')}>
             <Users className="h-4 w-4 text-accent-violet" /> My team
@@ -142,15 +147,15 @@ export function CommandPalette() {
         ) : null}
 
         {tickets?.length ? (
-          <CommandGroup heading="Tickets">
-            {tickets.slice(0, 6).map((t) => (
+          <CommandGroup heading={t.ticketsTitle}>
+            {tickets.slice(0, 6).map((ticket) => (
               <CommandItem
-                key={t.id}
-                value={`ticket ${t.code} ${t.title}`}
-                onSelect={() => go(`/tickets/${t.id}`)}
+                key={ticket.id}
+                value={`ticket ${ticket.code} ${ticket.title}`}
+                onSelect={() => go(`/tickets/${ticket.id}`)}
               >
-                <LifeBuoy className="h-4 w-4 text-accent-rose" /> {t.code} · {t.title}
-                <CommandShortcut>{t.status}</CommandShortcut>
+                <LifeBuoy className="h-4 w-4 text-accent-rose" /> {ticket.code} · {ticket.title}
+                <CommandShortcut>{ticketStatusLabel(t, ticket.status)}</CommandShortcut>
               </CommandItem>
             ))}
           </CommandGroup>

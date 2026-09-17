@@ -2,6 +2,7 @@ import type {
   Announcement,
   Incident,
   Message,
+  NotificationDto,
   PresenceState,
   ScoreboardEntry,
   Ticket,
@@ -34,6 +35,9 @@ export interface ServerToClientEvents {
 
   'ticket:created': (payload: { ticket: Ticket }) => void;
   'ticket:updated': (payload: { ticket: Ticket; event?: TicketEvent }) => void;
+  'ticket:comment': (payload: { ticket: Ticket; event: TicketEvent }) => void;
+
+  'notification:new': (payload: { notification: NotificationDto; unreadCount: number }) => void;
 
   'incident:created': (payload: { incident: Incident }) => void;
   'incident:updated': (payload: { incident: Incident }) => void;

@@ -176,7 +176,7 @@ export function ServerSettingsChannelsPanel({ serverId }: { serverId: string }) 
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4">
+    <div className="w-full space-y-4">
       <p className="text-sm text-fg-subtle">{t.adminReorderHint}</p>
       <form onSubmit={onCreate} className="grid gap-3 rounded-lg border border-white/8 bg-white/[0.02] p-4 sm:grid-cols-2">
         <div className="space-y-1.5 sm:col-span-2">

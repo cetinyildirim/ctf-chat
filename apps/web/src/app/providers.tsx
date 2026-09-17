@@ -16,10 +16,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={200}>
         <AuthBootstrapper />
-        <SocketBridge />
         <ThemeProvider
           localeChildren={
+            // SocketBridge lives inside LocaleProvider: incoming notifications are
+            // rendered in the viewer's language.
             <LocaleProvider>
+              <SocketBridge />
               <PlatformBrandingProvider>{children}</PlatformBrandingProvider>
             </LocaleProvider>
           }

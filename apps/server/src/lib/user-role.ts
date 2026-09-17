@@ -2,10 +2,10 @@ import { Role, effectivePermissionRole, isStaff } from '@sydt/shared';
 import { prisma } from '../prisma.js';
 
 type UserRoleRow = {
-  id: string;
+  id?: string;
   role: string;
   platformRole: string | null;
-  teamId: string | null;
+  teamId?: string | null;
   username?: string;
   email?: string;
 };

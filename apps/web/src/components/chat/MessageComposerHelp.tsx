@@ -59,20 +59,26 @@ export function MessageComposerHelp({ draft }: { draft: string }) {
   const { t } = useI18n();
   const [open, setOpen] = React.useState(false);
   const rows = React.useMemo(() => buildRows(t), [t]);
+  const deferredDraft = React.useDeferredValue(draft);
 
   return (
-    <div className="mb-2 rounded-lg border border-border/50 bg-white/[0.02]">
+    <div className="relative mb-2">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-subtle transition-colors hover:bg-white/5 hover:text-fg"
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 rounded-lg border border-border/50 bg-white/[0.02] px-3 py-2 text-left text-xs text-fg-subtle transition-colors hover:bg-white/5 hover:text-fg"
       >
         <Terminal className="h-3.5 w-3.5 shrink-0 text-accent-cyan" />
         <span className="font-medium">{t.composerHelpTitle}</span>
         {open ? <ChevronUp className="ml-auto h-3.5 w-3.5" /> : <ChevronDown className="ml-auto h-3.5 w-3.5" />}
       </button>
       {open ? (
-        <div className="space-y-3 border-t border-border/40 px-3 py-3">
+        <div
+          className="absolute bottom-full left-0 right-0 z-30 mb-1 max-h-[min(42vh,24rem)] space-y-3 overflow-y-auto rounded-lg border border-border/50 bg-bg-elev/95 px-3 py-3 shadow-glass backdrop-blur-md"
+          role="region"
+          aria-label={t.composerHelpTitle}
+        >
           <p className="text-[13px] leading-relaxed text-fg-subtle">{t.composerHelpIntro}</p>
 
           <div className="hidden overflow-x-auto sm:block">
@@ -134,15 +140,17 @@ export function MessageComposerHelp({ draft }: { draft: string }) {
             ))}
           </div>
 
-          {draft.trim() ? (
+          {deferredDraft.trim() ? (
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-fg">
                 {t.composerPreviewLabel}
               </div>
               <p className="mt-0.5 text-[11px] text-fg-subtle">{t.composerPreviewHint}</p>
               <div
-                className={cn('mt-1 rounded-md border border-accent-cyan/20 bg-accent-cyan/5 p-2 text-sm leading-relaxed')}
-                dangerouslySetInnerHTML={{ __html: previewMessageFormat(draft) }}
+                className={cn(
+                  'mt-1 rounded-md border border-accent-cyan/20 bg-accent-cyan/5 p-2 text-sm leading-relaxed',
+                )}
+                dangerouslySetInnerHTML={{ __html: previewMessageFormat(deferredDraft) }}
               />
             </div>
           ) : null}

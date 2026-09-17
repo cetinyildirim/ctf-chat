@@ -14,6 +14,9 @@
     "start:web": "pnpm --filter @sydt/web start",
     "db:generate": "pnpm --filter @sydt/server db:generate",
     "db:push": "pnpm --filter @sydt/server db:push",
+    "db:migrate": "pnpm --filter @sydt/server db:migrate",
+    "db:migrate:dev": "pnpm --filter @sydt/server db:migrate:dev",
+    "db:migrate:status": "pnpm --filter @sydt/server db:migrate:status",
     "seed": "pnpm --filter @sydt/server seed",
     "security:regression": "pnpm --filter @sydt/server security:regression",
     "lint": "pnpm -r --parallel lint",
@@ -24,5 +27,24 @@
     "concurrently": "^9.1.0",
     "prettier": "^3.4.2",
     "typescript": "^5.7.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "body-parser@1": "^1.20.8",
+      "socket.io-parser": "^4.2.7",
+      "ws@8": "^8.21.3",
+      "sharp": "^0.35.4",
+      "shell-quote": "^1.10.0",
+      "nanoid@3": "^3.3.19",
+      "brace-expansion@1": "^1.1.21",
+      "brace-expansion@2": "^2.1.7",
+      "brace-expansion@5": "^5.0.12",
+      "js-yaml@4": "^4.3.2",
+      "qs@6": "^6.16.0",
+      "postcss@8": "^8.5.28",
+      "postcss-selector-parser@6": "^6.1.4",
+      "browserslist@4": "^4.29.0",
+      "esbuild@0.28": "^0.28.2"
+    }
   }
 }

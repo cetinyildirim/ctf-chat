@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { TopBar } from '@/components/layout/TopBar';
 import { GlassPanel } from '@/components/common/GlassPanel';
 import { Label } from '@/components/ui/label';
@@ -34,6 +34,13 @@ export default function ProfileSettingsPage() {
   const [theme, setTheme] = React.useState<'light' | 'dark'>('dark');
   const [defaultNotifyMode, setDefaultNotifyMode] = React.useState<'ALL' | 'MENTIONS_ONLY' | 'NONE'>('ALL');
   const [busy, setBusy] = React.useState(false);
+  const [currentPassword, setCurrentPassword] = React.useState('');
+  const [newPassword, setNewPassword] = React.useState('');
+  const [confirmPassword, setConfirmPassword] = React.useState('');
+  const uploadRef = React.useRef<HTMLInputElement>(null);
+  const searchParams = useSearchParams();
+  const passwordRequired =
+    searchParams.get('passwordRequired') === '1' || (user?.mustChangePasswordServerIds?.length ?? 0) > 0;
 
   const logoutAll = async () => {
     setBusy(true);
@@ -86,8 +93,6 @@ export default function ProfileSettingsPage() {
     }
   };
 
-  const uploadRef = React.useRef<HTMLInputElement>(null);
-
   const onAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -117,11 +122,41 @@ export default function ProfileSettingsPage() {
     }
   };
 
+  const onChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      toast.error(t.profilePasswordMismatch);
+      return;
+    }
+    setBusy(true);
+    try {
+      const next = await authApi.changePassword({
+        currentPassword,
+        newPassword,
+        confirmPassword,
+      });
+      setUser(next);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      toast.success(t.profilePasswordSaved);
+      if (next.mustChangePasswordServerIds.length === 0) {
+        router.replace('/settings/profile');
+      }
+    } catch (err) {
+      toast.error(unwrapApiError(err).message ?? t.profilePasswordFail);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const prefsDirty = theme !== user.theme || defaultNotifyMode !== user.defaultNotifyMode;
   const nameBioDirty =
     displayName.trim() !== user.displayName.trim() || bio.trim() !== (user.bio ?? '').trim();
   const nameOk = displayName.trim().length >= 2;
   const canSave = prefsDirty || (nameBioDirty && nameOk);
+  const canChangePassword =
+    currentPassword.length > 0 && newPassword.length >= 8 && confirmPassword.length > 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -133,6 +168,13 @@ export default function ProfileSettingsPage() {
           </GlassPanel>
 
           <div className="space-y-6">
+            {passwordRequired ? (
+              <GlassPanel className="space-y-2 border border-accent-amber/30 bg-accent-amber/10 p-4">
+                <h2 className="text-sm font-semibold text-accent-amber">{t.profilePasswordRequiredTitle}</h2>
+                <p className="text-xs text-fg-subtle">{t.profilePasswordRequiredLead}</p>
+              </GlassPanel>
+            ) : null}
+
             <GlassPanel className="space-y-4 p-6">
               <div className="flex flex-wrap items-center gap-4">
                 <Avatar name={user.displayName} src={user.avatarUrl} size="lg" />
@@ -224,6 +266,45 @@ export default function ProfileSettingsPage() {
               </form>
             </GlassPanel>
 
+            <GlassPanel className="space-y-4 p-6">
+              <div>
+                <h2 className="text-sm font-semibold text-fg">{t.profilePasswordTitle}</h2>
+                <p className="mt-1 text-xs text-fg-subtle">{t.profilePasswordLead}</p>
+              </div>
+              <form className="space-y-4" onSubmit={(e) => void onChangePassword(e)}>
+                <div className="space-y-1.5">
+                  <Label>{t.profilePasswordCurrent}</Label>
+                  <Input
+                    type="password"
+                    autoComplete="current-password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{t.profilePasswordNew}</Label>
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{t.profilePasswordConfirm}</Label>
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                </div>
+                <Button type="submit" disabled={!canChangePassword || busy}>
+                  {t.profilePasswordSave}
+                </Button>
+              </form>
+            </GlassPanel>
+
             <GlassPanel className="space-y-3 p-6">
               <div>
                 <h2 className="text-sm font-semibold text-fg">{t.profileSecurityTitle}</h2>
@@ -234,15 +315,19 @@ export default function ProfileSettingsPage() {
               </Button>
             </GlassPanel>
 
-            <Link
-              href="/settings/notifications"
-              className="block text-center text-sm text-accent-cyan hover:underline md:text-left"
-            >
-              {t.settingsNotificationsMenu}
-            </Link>
-            <Link href="/" className="block text-center text-sm text-accent-cyan hover:underline md:text-left">
-              {t.settingsBackToWorkspace}
-            </Link>
+            {!passwordRequired ? (
+              <Link
+                href="/settings/notifications"
+                className="block text-center text-sm text-accent-cyan hover:underline md:text-left"
+              >
+                {t.settingsNotificationsMenu}
+              </Link>
+            ) : null}
+            {!passwordRequired ? (
+              <Link href="/" className="block text-center text-sm text-accent-cyan hover:underline md:text-left">
+                {t.settingsBackToWorkspace}
+              </Link>
+            ) : null}
           </div>
         </div>
       </div>

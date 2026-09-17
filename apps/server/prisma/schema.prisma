@@ -1,6 +1,7 @@
 // SYDT Prisma schema
 // SQLite for dev. Swap provider to "postgresql" (and DATABASE_URL) for prod;
-// enums are modeled as strings to keep portability without migrations churn.
+// enums are modeled as strings to keep portability.
+// Schema changes: prefer `pnpm db:migrate:dev` (versioned). `db:push` is emergency-only.
 
 generator client {
   provider = "prisma-client-js"
@@ -50,8 +51,12 @@ model User {
   pinnedBy     Pin[]
 
   openedTickets   Ticket[] @relation("TicketOpenedBy")
-  claimedTickets  Ticket[] @relation("TicketClaimedBy")
+  assignedTickets Ticket[] @relation("TicketAssignedTo")
   ticketEvents    TicketEvent[]
+  ticketReads     TicketRead[]
+  ticketRelationsCreated TicketRelation[] @relation("TicketRelationCreator")
+  notifications   Notification[]
+  uploadedAttachments Attachment[] @relation("AttachmentUploader")
 
   openedIncidents   Incident[] @relation("IncidentOpenedBy")
   assignedIncidents Incident[] @relation("IncidentAssignedTo")
@@ -138,6 +143,7 @@ model Team {
   solves    Solve[]
   tickets   Ticket[]
   privateChannels Channel[]
+  categories Category[]
   bloodChallenges Challenge[] @relation("FirstBloodTeam")
   hintUnlocks HintUnlock[]
 
@@ -208,6 +214,7 @@ model ChatServer {
   themePrimary String?
   themeAccent  String?
   emailNotifyEnabled Boolean @default(false)
+  requirePasswordChangeOnJoin Boolean @default(false)
   emailReplyTo       String?
   ctfdBaseUrl        String?
   ctfdAccessToken    String?
@@ -225,6 +232,12 @@ model ChatServer {
   webhooks    ServerWebhook[]
   roles             ServerRole[]
   memberServerRoles MemberServerRole[]
+  tickets           Ticket[]
+  ticketCategories  TicketCategory[]
+  ticketTags        Tag[]
+  competition       CompetitionSettings?
+  notifications     Notification[]
+  incidents         Incident[]
 
   @@index([position])
 }
@@ -282,6 +295,7 @@ model ServerMember {
   nickname   String?
   avatarUrl  String?
   joinedAt   DateTime  @default(now())
+  mustChangePassword Boolean @default(false)
   bannedAt   DateTime?
   bannedById String?
   banReason  String?
@@ -333,10 +347,15 @@ model Category {
   logoUrl  String?
   serverId String?
   server   ChatServer? @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  /// When set, this category is the private workspace for that team.
+  teamId   String?
+  team     Team?    @relation(fields: [teamId], references: [id], onDelete: Cascade)
   channels Channel[]
 
+  @@unique([serverId, teamId], name: "category_server_team")
   @@index([position])
   @@index([serverId, position])
+  @@index([teamId])
 }
 
 model Channel {
@@ -421,11 +440,19 @@ model Attachment {
   id        String   @id @default(cuid())
   messageId String?
   message   Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  /// Ticket attachments hang off the ticket event that introduced them.
+  ticketEventId String?
+  ticketEvent   TicketEvent? @relation(fields: [ticketEventId], references: [id], onDelete: Cascade)
+  uploadedById  String?
+  uploadedBy    User?    @relation("AttachmentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
   name      String
   mimeType  String
   size      Int
   url       String
   createdAt DateTime @default(now())
+
+  @@index([ticketEventId])
+  @@index([messageId])
 }
 
 model Pin {
@@ -515,13 +542,24 @@ model Ticket {
   title       String
   body        String
   status      String   @default("OPEN")
-  severity    String   @default("MEDIUM")
+
+  // Competition scope: every ticket belongs to exactly one ChatServer (competition).
+  serverId    String
+  server      ChatServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  /// Per-competition running number rendered as the ticket code.
+  seq         Int
+  priority    String   @default("MEDIUM")
+  /// Numeric mirror of `priority` (LOW=0 .. CRITICAL=3) so the DB can sort by urgency.
+  priorityRank Int     @default(1)
+
+  categoryId  String?
+  category    TicketCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   openedById  String
   openedBy    User     @relation("TicketOpenedBy", fields: [openedById], references: [id], onDelete: Cascade)
 
-  claimedById String?
-  claimedBy   User?    @relation("TicketClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+  assignedToId String?
+  assignedTo   User?   @relation("TicketAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
 
   teamId      String?
   team        Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
@@ -535,12 +573,28 @@ model Ticket {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   resolvedAt  DateTime?
+  closedAt    DateTime?
+  /// Response-time metrics (CTF operations, never fed back into scoring).
+  firstResponseAt       DateTime?
+  lastCompetitorReplyAt DateTime?
+  lastOrganizerReplyAt  DateTime?
+  reopenCount           Int      @default(0)
 
   events      TicketEvent[]
+  tags        TicketTag[]
+  relationsFrom TicketRelation[] @relation("TicketRelationFrom")
+  relationsTo   TicketRelation[] @relation("TicketRelationTo")
+  reads       TicketRead[]
 
+  @@unique([serverId, seq], name: "ticket_server_seq")
   @@index([status])
-  @@index([severity])
   @@index([teamId])
+  @@index([serverId, status, updatedAt])
+  @@index([serverId, teamId, updatedAt])
+  @@index([serverId, priorityRank, updatedAt])
+  @@index([serverId, challengeId])
+  @@index([serverId, assignedToId])
+  @@index([serverId, categoryId])
 }
 
 model TicketEvent {
@@ -554,7 +608,123 @@ model TicketEvent {
   metaJson  String   @default("{}")
   createdAt DateTime @default(now())
 
+  attachments Attachment[]
+
   @@index([ticketId, createdAt])
+}
+
+/// Admin-managed ticket categories (doubles as the ticket type).
+model TicketCategory {
+  id       String  @id @default(cuid())
+  serverId String
+  server   ChatServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  key      String
+  name     String
+  position Int     @default(0)
+  isActive Boolean @default(true)
+  /// Forces the reporter to pick a challenge (e.g. challenge issues).
+  requiresChallenge Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  tickets Ticket[]
+
+  @@unique([serverId, key], name: "ticket_category_server_key")
+  @@index([serverId, position])
+}
+
+model Tag {
+  id       String @id @default(cuid())
+  serverId String
+  server   ChatServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  name     String
+  color    String @default("#a78bfa")
+  createdAt DateTime @default(now())
+
+  tickets TicketTag[]
+
+  @@unique([serverId, name], name: "tag_server_name")
+  @@index([serverId])
+}
+
+model TicketTag {
+  ticketId String
+  tagId    String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tag      Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, tagId])
+  @@index([tagId])
+}
+
+model TicketRelation {
+  id               String @id @default(cuid())
+  ticketId         String
+  relatedTicketId  String
+  /// RELATED | DUPLICATE | PARENT | CHILD
+  kind             String
+  createdById      String?
+  createdAt        DateTime @default(now())
+
+  ticket        Ticket @relation("TicketRelationFrom", fields: [ticketId], references: [id], onDelete: Cascade)
+  relatedTicket Ticket @relation("TicketRelationTo", fields: [relatedTicketId], references: [id], onDelete: Cascade)
+  createdBy     User?  @relation("TicketRelationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([ticketId, relatedTicketId, kind], name: "ticket_relation_unique")
+  @@index([relatedTicketId])
+}
+
+/// Per-user read cursor powering ticket unread counts.
+model TicketRead {
+  ticketId   String
+  userId     String
+  lastReadAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, userId])
+  @@index([userId])
+}
+
+/// Durable notification inbox (the client store is ephemeral by design).
+model Notification {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serverId String?
+  server   ChatServer? @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  kind     String
+  title    String
+  body     String   @default("")
+  href     String?
+  refType  String?
+  refId    String?
+  metaJson String   @default("{}")
+  readAt   DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt])
+  @@index([refType, refId])
+}
+
+/// Competition lifecycle settings for a ChatServer.
+model CompetitionSettings {
+  serverId  String   @id
+  server    ChatServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  timezone  String   @default("Europe/Istanbul")
+  /// Ticket code prefix, e.g. `LS26` -> LS26-000001. Globally unique.
+  ticketPrefix String @unique
+  /// UPCOMING | LIVE | PAUSED | FINISHED
+  status    String   @default("UPCOMING")
+  /// OPEN | ORGANIZER_ONLY | CLOSED - who may open tickets right now.
+  ticketPolicy String @default("OPEN")
+  archivedAt DateTime?
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
 }
 
 model Incident {
@@ -570,11 +740,18 @@ model Incident {
   assignedToId String?
   assignedTo   User?   @relation("IncidentAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
 
+  /// Competition scope. Prefer this over platform-wide staff fanout.
+  serverId    String?
+  server      ChatServer? @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
   channelId   String?
   channel     Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
 
   createdAt   DateTime @default(now())
   resolvedAt  DateTime?
+
+  @@index([status])
+  @@index([serverId, createdAt])
 }
 
 model Announcement {
@@ -590,21 +767,28 @@ model Announcement {
   channel     Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
   scheduledFor DateTime?
   publishedAt DateTime?
+  /// Optional expiry; expired announcements stop being served to clients.
+  expiresAt   DateTime?
+  /// Set when the announcement was generated from a ticket (spec: ticket -> announcement).
+  sourceTicketId String?
   createdAt   DateTime @default(now())
 
   @@index([createdAt])
   @@index([serverId, publishedAt])
   @@index([scheduledFor])
+  @@index([expiresAt])
 }
 
 model AppConfig {
-  id               String   @id @default("default")
-  uploadMaxMb      Int      @default(100)
-  platformTitle    String   @default("SYDT")
-  platformTagline  String   @default("CTF Operations Console")
-  workspaceLabel   String   @default("Komuta")
-  workspaceTitle   String   @default("SYDT Chat")
-  updatedAt        DateTime @updatedAt
+  id                          String   @id @default("default")
+  uploadMaxMb                 Int      @default(100)
+  platformTitle               String   @default("SYDT")
+  platformTagline             String   @default("CTF Operations Console")
+  workspaceLabel              String   @default("Komuta")
+  workspaceTitle              String   @default("SYDT Chat")
+  /// Competition new open-registrations join when they have no team invite.
+  defaultRegistrationServerId String?
+  updatedAt                   DateTime @updatedAt
 }
 
 model AdminBroadcast {
@@ -628,10 +812,13 @@ model AuditLog {
   action    String
   target    String?
   metaJson  String   @default("{}")
+  ip        String?
+  userAgent String?
   createdAt DateTime @default(now())
 
   @@index([createdAt])
   @@index([action])
+  @@index([target])
 }
 
 model Survey {

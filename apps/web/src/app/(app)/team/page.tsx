@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Trophy, Droplet, Flag, ImageIcon, ExternalLink, BarChart3 } from 'lucide-react';
+import { Trophy, Droplet, Flag, ImageIcon, ExternalLink, BarChart3, Copy } from 'lucide-react';
 import { teamsApi, serversApi, authApi } from '@/lib/api/endpoints';
 import { normalizeSessionUser } from '@/lib/auth/session-normalize';
 import { queryKeys } from '@/lib/query/client';
@@ -35,7 +35,12 @@ export default function TeamPage() {
   const { t } = useI18n();
   const qc = useQueryClient();
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const { data: myTeam } = useQuery({
+  const setActiveServerId = useServerStore((s) => s.setActiveServerId);
+  const {
+    data: myTeam,
+    isLoading: myTeamLoading,
+    isFetched: myTeamFetched,
+  } = useQuery({
     queryKey: queryKeys.serverMyTeam(activeServerId ?? ''),
     queryFn: () => serversApi.getMyTeam(activeServerId!),
     enabled: !!activeServerId,
@@ -46,6 +51,7 @@ export default function TeamPage() {
   const [name, setName] = React.useState('');
   const [tagline, setTagline] = React.useState('');
   const [color, setColor] = React.useState('#22d3ee');
+  const [inviteCode, setInviteCode] = React.useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.team(teamId ?? 'none'),
@@ -60,6 +66,22 @@ export default function TeamPage() {
     enabled: !!teamId,
     refetchInterval: 60_000,
     staleTime: 45_000,
+  });
+
+  const noTeamYet = !activeServerId || (myTeamFetched && !teamId);
+  const trimmedInvite = inviteCode.trim();
+  const { data: joinPreview, isFetching: previewLoading } = useQuery({
+    queryKey: ['team-join-preview', trimmedInvite, activeServerId ?? ''],
+    queryFn: () => teamsApi.joinPreview(trimmedInvite, activeServerId ?? undefined),
+    enabled: noTeamYet && trimmedInvite.length >= 4,
+    retry: false,
+    staleTime: 15_000,
+  });
+
+  const { data: directoryTeams = [] } = useQuery({
+    queryKey: queryKeys.serverTeams(activeServerId ?? ''),
+    queryFn: () => serversApi.listTeams(activeServerId!),
+    enabled: !!activeServerId && noTeamYet,
   });
 
   const createMut = useMutation({
@@ -81,6 +103,30 @@ export default function TeamPage() {
       toast.success(t.teamCreatedOwnOk);
       void qc.invalidateQueries({ queryKey: queryKeys.channelsAll });
       void qc.invalidateQueries({ queryKey: queryKeys.serverMyTeam(activeServerId!) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverTeams(activeServerId!) });
+    },
+    onError: (err) => toast.error(unwrapApiError(err).message),
+  });
+
+  const joinMut = useMutation({
+    mutationFn: () => teamsApi.joinByInvite(trimmedInvite, activeServerId ?? undefined),
+    onSuccess: async (res) => {
+      setUser(normalizeSessionUser(res.me));
+      if (res.team.serverId) setActiveServerId(res.team.serverId);
+      try {
+        const refreshed = await authApi.refresh();
+        setUser(normalizeSessionUser(refreshed));
+      } catch {
+        /* session refresh optional */
+      }
+      toast.success(res.alreadyMember ? t.teamJoinInviteAlready : t.teamJoinInviteSuccess);
+      setInviteCode('');
+      const sid = res.team.serverId ?? activeServerId;
+      void qc.invalidateQueries({ queryKey: queryKeys.channelsAll });
+      if (sid) {
+        void qc.invalidateQueries({ queryKey: queryKeys.serverMyTeam(sid) });
+        void qc.invalidateQueries({ queryKey: queryKeys.serverTeams(sid) });
+      }
     },
     onError: (err) => toast.error(unwrapApiError(err).message),
   });
@@ -106,6 +152,7 @@ export default function TeamPage() {
       }
       toast.success(t.teamLeaveSuccess);
       void qc.invalidateQueries({ queryKey: queryKeys.serverMyTeam(activeServerId!) });
+      void qc.invalidateQueries({ queryKey: queryKeys.serverTeams(activeServerId!) });
       void qc.invalidateQueries({ queryKey: queryKeys.channelsAll });
     },
     onError: (err) => toast.error(unwrapApiError(err).message),
@@ -117,49 +164,136 @@ export default function TeamPage() {
     onError: (err) => toast.error(unwrapApiError(err).message),
   });
 
-  if (!activeServerId) {
-    return (
-      <div className="flex h-full flex-col">
-        <TopBar title={t.teamCreateOwnTitle} />
-        <div className="p-4 text-sm text-fg-subtle">{t.teamsAdminPickServer}</div>
-      </div>
-    );
-  }
+  const isCaptain = !!me && !!data?.team && data.team.captainId === me.id;
+  const { data: myInvite } = useQuery({
+    queryKey: ['team-my-invite', teamId ?? ''],
+    queryFn: () => teamsApi.getMyInvite(),
+    enabled: !!teamId && isCaptain,
+    staleTime: 60_000,
+  });
 
-  if (!teamId) {
+  if (activeServerId && myTeamLoading) {
     return (
       <div className="flex h-full flex-col">
-        <TopBar title={t.teamCreateOwnTitle} />
+        <TopBar title={t.teamPageTitle} />
         <div className="p-4">
-          <GlassPanel className="mx-auto max-w-lg space-y-4 p-6">
-            <p className="text-[15px] text-fg-subtle">{t.teamCreateOwnLead}</p>
-            <div className="space-y-2">
-              <Label>{t.teamFieldName}</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>{t.teamFieldTagline}</Label>
-              <Input value={tagline} onChange={(e) => setTagline(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>{t.teamFieldColor}</Label>
-              <ColorPalettePicker value={color} onChange={setColor} />
-            </div>
-            <Button
-              type="button"
-              disabled={createMut.isPending || name.trim().length < 2}
-              onClick={() => createMut.mutate()}
-            >
-              {t.teamCreateOwnSubmit}
-            </Button>
-          </GlassPanel>
+          <Skeleton className="h-40 w-full max-w-lg" />
         </div>
       </div>
     );
   }
 
+  if (noTeamYet) {
+    const previewLabel =
+      joinPreview?.team &&
+      t.teamJoinInvitePreview
+        .replace('{{name}}', joinPreview.team.name)
+        .replace('{{count}}', String(joinPreview.team.memberCount));
+
+    return (
+      <div className="flex h-full flex-col">
+        <TopBar title={t.teamPageTitle} />
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="grid h-full gap-4 p-4 lg:grid-cols-3 lg:items-stretch">
+            <GlassPanel className="flex min-h-0 flex-col space-y-4 p-6">
+              <div>
+                <h2 className="text-base font-semibold text-fg">{t.teamJoinInviteTitle}</h2>
+                <p className="mt-1 text-sm text-fg-subtle">{t.teamJoinInviteLead}</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="team-invite-code">{t.teamJoinInviteCode}</Label>
+                <Input
+                  id="team-invite-code"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={t.teamJoinInvitePlaceholder}
+                />
+                {trimmedInvite.length >= 4 ? (
+                  <p className="text-xs text-fg-subtle">
+                    {previewLoading ? t.authLoading : previewLabel ? previewLabel : null}
+                  </p>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                className="mt-auto self-start"
+                disabled={joinMut.isPending || trimmedInvite.length < 4}
+                onClick={() => joinMut.mutate()}
+              >
+                {joinMut.isPending ? '…' : t.teamJoinInviteSubmit}
+              </Button>
+            </GlassPanel>
+
+            {activeServerId ? (
+              <GlassPanel className="flex min-h-0 flex-col space-y-3 p-6">
+                <div>
+                  <h2 className="text-base font-semibold text-fg">{t.teamDirectoryTitle}</h2>
+                  <p className="mt-1 text-sm text-fg-subtle">{t.teamDirectoryLead}</p>
+                </div>
+                {directoryTeams.length === 0 ? (
+                  <p className="text-sm text-muted-fg">{t.teamDirectoryEmpty}</p>
+                ) : (
+                  <ul className="min-h-0 flex-1 divide-y divide-white/5 overflow-y-auto pr-1">
+                    {directoryTeams.map((team) => (
+                      <li key={team.id} className="flex items-center gap-3 py-2.5">
+                        <TeamMark
+                          team={{ id: team.id, name: team.name, color: team.color, logoUrl: team.logoUrl }}
+                          size="sm"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium text-fg">{team.name}</div>
+                          <div className="text-[11px] text-muted-fg">
+                            {t.teamDirectoryMembers.replace('{{count}}', String(team.memberCount))}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </GlassPanel>
+            ) : (
+              <GlassPanel className="flex items-center p-6">
+                <p className="text-sm text-fg-subtle">{t.teamJoinNeedServer}</p>
+              </GlassPanel>
+            )}
+
+            {activeServerId ? (
+              <GlassPanel className="flex min-h-0 flex-col space-y-4 p-6">
+                <div>
+                  <h2 className="text-base font-semibold text-fg">{t.teamCreateOwnTitle}</h2>
+                  <p className="mt-1 text-sm text-fg-subtle">{t.teamCreateOwnLead}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.teamFieldName}</Label>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.teamFieldTagline}</Label>
+                  <Input value={tagline} onChange={(e) => setTagline(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.teamFieldColor}</Label>
+                  <ColorPalettePicker value={color} onChange={setColor} />
+                </div>
+                <Button
+                  type="button"
+                  className="mt-auto self-start"
+                  disabled={createMut.isPending || name.trim().length < 2}
+                  onClick={() => createMut.mutate()}
+                >
+                  {t.teamCreateOwnSubmit}
+                </Button>
+              </GlassPanel>
+            ) : null}
+          </div>
+        </ScrollArea>
+      </div>
+    );
+  }
+
   const team = data?.team;
-  const isCaptain = !!me && !!team && team.captainId === me.id;
   const statsHint =
     data?.scoreboard &&
     t.teamStatsLiveHint
@@ -197,44 +331,73 @@ export default function TeamPage() {
           ) : (
             <>
               {isCaptain ? (
-                <GlassPanel className="flex flex-wrap items-center gap-4 p-4">
-                  <div>
-                    <div className="text-sm font-semibold text-fg">{t.teamLogoCaptain}</div>
-                    <div className="mt-2">
-                      <TeamMark team={data.team} size="md" />
+                <GlassPanel className="space-y-4 p-4">
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div>
+                      <div className="text-sm font-semibold text-fg">{t.teamLogoCaptain}</div>
+                      <div className="mt-2">
+                        <TeamMark team={data.team} size="md" />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <label className="inline-flex cursor-pointer items-center gap-2">
+                        <Button type="button" variant="outline" size="sm" asChild>
+                          <span>
+                            <ImageIcon className="mr-1 h-4 w-4" />
+                            {t.teamLogoUpload}
+                          </span>
+                        </Button>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) logoMut.mutate(f);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      {data.team.logoUrl ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={clearLogoMut.isPending}
+                          onClick={() => clearLogoMut.mutate()}
+                        >
+                          {t.teamLogoRemove}
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <label className="inline-flex cursor-pointer items-center gap-2">
-                      <Button type="button" variant="outline" size="sm" asChild>
-                        <span>
-                          <ImageIcon className="mr-1 h-4 w-4" />
-                          {t.teamLogoUpload}
-                        </span>
-                      </Button>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="sr-only"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) logoMut.mutate(f);
-                          e.target.value = '';
-                        }}
-                      />
-                    </label>
-                    {data.team.logoUrl ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        disabled={clearLogoMut.isPending}
-                        onClick={() => clearLogoMut.mutate()}
-                      >
-                        {t.teamLogoRemove}
-                      </Button>
-                    ) : null}
-                  </div>
+                  {myInvite?.inviteCode ? (
+                    <div className="space-y-2 border-t border-white/5 pt-4">
+                      <div className="text-sm font-semibold text-fg">{t.teamInviteShareTitle}</div>
+                      <p className="text-xs text-fg-subtle">{t.teamInviteShareLead}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <code className="rounded-md border border-white/10 bg-black/20 px-3 py-1.5 font-mono text-sm text-fg">
+                          {myInvite.inviteCode}
+                        </code>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(myInvite.inviteCode);
+                              toast.success(t.teamInviteCopied);
+                            } catch {
+                              toast.error(t.teamInviteCopyFail);
+                            }
+                          }}
+                        >
+                          <Copy className="mr-1 h-3.5 w-3.5" />
+                          {t.teamInviteCopyBtn}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </GlassPanel>
               ) : null}
 

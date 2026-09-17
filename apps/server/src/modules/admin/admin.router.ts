@@ -1,21 +1,25 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
-import { Permission } from '@sydt/shared';
+import { Permission, TICKET_ACTIVE_STATUSES } from '@sydt/shared';
 import { prisma } from '../../prisma.js';
 import { env } from '../../env.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requirePermission, requireAnyPermission } from '../../middleware/rbac.js';
 import { serializeUser } from '../serializers.js';
 import { snapshot } from '../../realtime/presence.js';
-import { importCtfdChallengesCsv } from './ctfd-import.service.js';
+import { importCtfdChallengesCsv, previewCtfdChallengesCsv, importCtfdChallengeRows, challengeItemToRow } from './ctfd-import.service.js';
+import { importCtfdTeamsCsv, previewCtfdTeamsCsv, importCtfdTeamMembers } from './ctfd-teams-import.service.js';
+import { BadRequest } from '../../lib/http-error.js';
 import type { ActivityBucket, AuditLogEntry, KPISnapshot } from '@sydt/shared';
 import teamsAdminRouter from './teams-admin.router.js';
 import surveysAdminRouter from './surveys-admin.router.js';
 import usersAdminRouter from './users-admin.router.js';
 import {
   getPlatformBranding,
+  getRegistrationSettings,
   getUploadMaxMb,
+  setDefaultRegistrationServerId,
   setPlatformBranding,
   setUploadMaxMb,
 } from '../../lib/platform-settings.js';
@@ -101,7 +105,7 @@ router.get('/kpis', async (_req, res, next) => {
 
     const [messagesLastMinute, openTickets, openIncidents, totalSolves] = await Promise.all([
       prisma.message.count({ where: { createdAt: { gte: oneMinAgo }, deletedAt: null } }),
-      prisma.ticket.count({ where: { status: { in: ['OPEN', 'CLAIMED', 'IN_PROGRESS'] } } }),
+      prisma.ticket.count({ where: { status: { in: [...TICKET_ACTIVE_STATUSES] } } }),
       prisma.incident.count({ where: { status: { in: ['OPEN', 'INVESTIGATING'] } } }),
       prisma.solve.count(),
     ]);
@@ -240,6 +244,8 @@ router.get('/audit', requirePermission(Permission.AUDIT_LOG_VIEW), async (req, r
         action: r.action,
         target: r.target,
         meta,
+        ip: r.ip,
+        userAgent: r.userAgent,
         createdAt: r.createdAt.toISOString(),
       };
     });
@@ -300,6 +306,76 @@ router.patch('/settings/upload', validate(schemas.patchUploadMaxSchema), async (
   }
 });
 
+router.get('/settings/registration', async (_req, res, next) => {
+  try {
+    res.json(await getRegistrationSettings());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch(
+  '/settings/registration',
+  validate(schemas.patchRegistrationSettingsSchema),
+  async (req, res, next) => {
+    try {
+      const body = req.body as z.infer<typeof schemas.patchRegistrationSettingsSchema>;
+      const nextSettings = await setDefaultRegistrationServerId(body.defaultRegistrationServerId);
+      await audit({
+        actorId: req.user?.id,
+        action: 'admin.settings.registration',
+        meta: { defaultRegistrationServerId: body.defaultRegistrationServerId },
+      });
+      res.json(nextSettings);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post('/import/ctfd/preview', upload.single('file'), async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file?.buffer?.length) {
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'CSV file required' } });
+      return;
+    }
+    const text = file.buffer.toString('utf8');
+    const preview = previewCtfdChallengesCsv(text);
+    if (preview.totalChannels === 0) {
+      throw BadRequest('No challenges found in CSV. Use CTFd challenges export.');
+    }
+    res.json({ ok: true, preview });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/import/ctfd/apply', validate(schemas.applyCtfdChallengesSchema), async (req, res, next) => {
+  try {
+    const body = req.body as z.infer<typeof schemas.applyCtfdChallengesSchema>;
+    const server = await prisma.chatServer.findUnique({ where: { id: body.serverId } });
+    if (!server) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Server not found' } });
+      return;
+    }
+    const rows = body.channels.map(challengeItemToRow);
+    const stats = await importCtfdChallengeRows(rows, body.serverId);
+    if (stats.channelsCreated + stats.channelsUpdated === 0) {
+      throw BadRequest('No channels were imported.');
+    }
+    await audit({
+      actorId: req.user?.id,
+      action: 'admin.import.ctfd',
+      meta: { ...stats, selectedCount: body.channels.length } as unknown as Record<string, unknown>,
+    });
+    res.json({ ok: true, stats });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** @deprecated use /import/ctfd/apply */
 router.post('/import/ctfd', upload.single('file'), async (req, res, next) => {
   try {
     const file = req.file;
@@ -323,6 +399,156 @@ router.post('/import/ctfd', upload.single('file'), async (req, res, next) => {
       actorId: req.user?.id,
       action: 'admin.import.ctfd',
       meta: stats as unknown as Record<string, unknown>,
+    });
+    res.json({ ok: true, stats });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/import/ctfd-teams/preview', upload.single('file'), async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file?.buffer?.length) {
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'CSV file required' } });
+      return;
+    }
+    const serverId = z.string().cuid().parse(req.body?.serverId);
+    const server = await prisma.chatServer.findUnique({ where: { id: serverId } });
+    if (!server) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Server not found' } });
+      return;
+    }
+    const text = file.buffer.toString('utf8');
+    const preview = await previewCtfdTeamsCsv(text, serverId);
+    if (preview.totalMembers === 0) {
+      throw BadRequest(
+        'No teams or members found in CSV. Use CTFd export: users+teams+fields or teams+members+fields.',
+      );
+    }
+    res.json({ ok: true, preview });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/import/ctfd-teams/apply', validate(schemas.applyCtfdTeamsSchema), async (req, res, next) => {
+  try {
+    const body = req.body as z.infer<typeof schemas.applyCtfdTeamsSchema>;
+    const server = await prisma.chatServer.findUnique({ where: { id: body.serverId } });
+    if (!server) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Server not found' } });
+      return;
+    }
+    const stats = await importCtfdTeamMembers(
+      body.members.map((m) => ({
+        displayName: m.displayName,
+        email: m.email,
+        teamName: m.teamName,
+        isCaptain: m.isCaptain,
+        serverRoleId: m.serverRoleId,
+      })),
+      body.serverId,
+    );
+    if (stats.credentials.length === 0) {
+      throw BadRequest('No teams or members were imported.');
+    }
+    await audit({
+      actorId: req.user?.id,
+      action: 'admin.import.ctfd_teams',
+      meta: {
+        teamsCreated: stats.teamsCreated,
+        teamsReused: stats.teamsReused,
+        usersCreated: stats.usersCreated,
+        usersUpdated: stats.usersUpdated,
+        serverMembersAdded: stats.serverMembersAdded,
+        skipped: stats.skipped,
+        credentialCount: stats.credentials.length,
+        selectedCount: body.members.length,
+      },
+    });
+    res.json({ ok: true, stats });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** @deprecated use /import/ctfd-teams/apply with JSON body */
+router.post('/import/ctfd-teams/apply-file', upload.single('file'), async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file?.buffer?.length) {
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'CSV file required' } });
+      return;
+    }
+    const serverId = typeof req.body?.serverId === 'string' ? req.body.serverId.trim() : '';
+    if (!serverId) {
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'serverId required' } });
+      return;
+    }
+    const server = await prisma.chatServer.findUnique({ where: { id: serverId } });
+    if (!server) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Server not found' } });
+      return;
+    }
+    const text = file.buffer.toString('utf8');
+    const stats = await importCtfdTeamsCsv(text, serverId);
+    if (stats.credentials.length === 0) {
+      throw BadRequest(
+        'No teams or members were imported. Check the CSV format (CTFd users+teams+fields).',
+      );
+    }
+    await audit({
+      actorId: req.user?.id,
+      action: 'admin.import.ctfd_teams',
+      meta: {
+        teamsCreated: stats.teamsCreated,
+        teamsReused: stats.teamsReused,
+        usersCreated: stats.usersCreated,
+        usersUpdated: stats.usersUpdated,
+        serverMembersAdded: stats.serverMembersAdded,
+        skipped: stats.skipped,
+        credentialCount: stats.credentials.length,
+      },
+    });
+    res.json({ ok: true, stats });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** @deprecated use /import/ctfd-teams/apply */
+router.post('/import/ctfd-teams', upload.single('file'), async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file?.buffer?.length) {
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'CSV file required' } });
+      return;
+    }
+    const serverId = typeof req.body?.serverId === 'string' ? req.body.serverId.trim() : '';
+    if (!serverId) {
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'serverId required' } });
+      return;
+    }
+    const server = await prisma.chatServer.findUnique({ where: { id: serverId } });
+    if (!server) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Server not found' } });
+      return;
+    }
+    const text = file.buffer.toString('utf8');
+    const stats = await importCtfdTeamsCsv(text, serverId);
+    await audit({
+      actorId: req.user?.id,
+      action: 'admin.import.ctfd_teams',
+      meta: {
+        teamsCreated: stats.teamsCreated,
+        teamsReused: stats.teamsReused,
+        usersCreated: stats.usersCreated,
+        usersUpdated: stats.usersUpdated,
+        serverMembersAdded: stats.serverMembersAdded,
+        skipped: stats.skipped,
+        credentialCount: stats.credentials.length,
+      },
     });
     res.json({ ok: true, stats });
   } catch (err) {

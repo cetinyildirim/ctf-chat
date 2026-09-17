@@ -1,6 +1,15 @@
-import { Permission, type ServerPermKey, mergeServerPermissions, parseServerPermissions, SERVER_PERM_KEYS } from '@sydt/shared';
+import {
+  Permission,
+  permissionsFor,
+  type ServerPermKey,
+  mergeServerPermissions,
+  parseServerPermissions,
+  SERVER_PERM_KEYS,
+  SERVER_ROLE_DEFAULT_PERMISSIONS,
+} from '@sydt/shared';
 import { prisma } from '../prisma.js';
 import { Forbidden } from './http-error.js';
+import type { AuthUser } from '../middleware/auth.js';
 
 export async function getEffectiveServerPermissions(
   userId: string,
@@ -10,6 +19,14 @@ export async function getEffectiveServerPermissions(
     where: { userId, serverId },
     include: { role: true },
   });
+  if (rows.length === 0) {
+    // Members without an assigned role still get the safe default set (matches join bootstrap).
+    return new Set(
+      (Object.entries(SERVER_ROLE_DEFAULT_PERMISSIONS) as [ServerPermKey, boolean][])
+        .filter(([, v]) => v)
+        .map(([k]) => k),
+    );
+  }
   const maps = rows.map((r) => parseServerPermissions(r.role.permissionsJson));
   const merged = mergeServerPermissions(maps);
   return new Set(
@@ -26,6 +43,19 @@ export async function assertServerPermission(
   if (platformPermissions.includes(Permission.ADMIN_DASHBOARD)) return;
   const perms = await getEffectiveServerPermissions(userId, serverId);
   if (!perms.has(key)) throw Forbidden('Missing server permission');
+}
+
+/**
+ * Enforce Discord-style server perms on competition channels.
+ * DM / unscoped channels skip this (platform RBAC only).
+ */
+export async function assertChannelServerPermission(
+  user: AuthUser,
+  channel: { serverId: string | null },
+  key: ServerPermKey,
+): Promise<void> {
+  if (!channel.serverId) return;
+  await assertServerPermission(user.id, channel.serverId, key, permissionsFor(user.role));
 }
 
 export async function canManageServerRoles(

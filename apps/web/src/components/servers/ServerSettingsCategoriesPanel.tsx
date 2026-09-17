@@ -125,7 +125,7 @@ export function ServerSettingsCategoriesPanel({ serverId }: { serverId: string }
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="w-full space-y-4">
       <p className="text-sm text-fg-subtle">{t.adminReorderHint}</p>
       <form onSubmit={onCreate} className="flex flex-wrap items-end gap-3 rounded-lg border border-white/8 bg-white/[0.02] p-4">
         <div className="min-w-[200px] flex-1 space-y-1.5">

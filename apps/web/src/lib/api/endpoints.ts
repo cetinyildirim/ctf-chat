@@ -13,11 +13,23 @@ import type {
   SolveTimelinePoint,
   Team,
   Ticket,
+  TicketBulkResult,
+  TicketCategoryDto,
+  TicketDetailResponse,
   TicketEvent,
+  TicketListPage,
+  TicketMeta,
+  TicketRelationDto,
+  TicketReportDto,
+  TicketStatsDto,
+  TicketTagDto,
+  CompetitionSettingsDto,
+  NotificationsPage,
   AuditLogEntry,
   ActivityBucket,
   ChannelsListPayload,
   ChannelNotifyMode,
+  CtfdScoreboardSnapshotDto,
   ChatServer,
   ServerInvite,
   ServerMemberProfile,
@@ -25,6 +37,7 @@ import type {
   SurveyStatsDto,
   PlatformBranding,
   PlatformPage,
+  RegistrationSettings,
 } from '@sydt/shared';
 import { schemas } from '@sydt/shared';
 import type { z } from 'zod';
@@ -58,6 +71,10 @@ export const authApi = {
   },
   async logoutAll() {
     await api.post('/auth/logout-all');
+  },
+  async changePassword(body: z.infer<typeof schemas.changePasswordSchema>) {
+    const { data } = await api.post<{ user: SessionUser }>('/auth/change-password', body);
+    return data.user;
   },
   async refresh() {
     const { data } = await api.post<{ user: SessionUser }>('/auth/refresh');
@@ -218,6 +235,37 @@ export const serversApi = {
     const { data } = await api.get<{ team: Team | null }>(`/servers/${serverId}/me/team`);
     return data.team;
   },
+  async listTeams(serverId: string) {
+    const { data } = await api.get<{
+      teams: Array<{
+        id: string;
+        name: string;
+        color: string;
+        logoUrl: string | null;
+        tagline: string | null;
+        memberCount: number;
+      }>;
+    }>(`/servers/${serverId}/teams`);
+    return data.teams;
+  },
+  async getCtfdScoreboard(serverId: string) {
+    const { data } = await api.get<CtfdScoreboardSnapshotDto>(`/servers/${serverId}/scoreboard/ctfd`);
+    return data;
+  },
+  async getCtfdStats(serverId: string) {
+    const { data } = await api.get<{ stats: import('@sydt/shared').CtfdStatsSnapshotDto | null; generatedAt: string }>(
+      `/servers/${serverId}/scoreboard/ctfd/stats`,
+    );
+    return data;
+  },
+  async getServerScoreboard(serverId: string) {
+    const { data } = await api.get<ScoreboardSnapshot>(`/servers/${serverId}/scoreboard`);
+    return data;
+  },
+  async getServerScoreboardTimeline(serverId: string) {
+    const { data } = await api.get<{ points: SolveTimelinePoint[] }>(`/servers/${serverId}/scoreboard/timeline`);
+    return data.points;
+  },
   async getIntegrations(serverId: string) {
     const { data } = await api.get<{ integrations: import('@sydt/shared').ServerIntegrations }>(
       `/servers/${serverId}/integrations`,
@@ -230,6 +278,19 @@ export const serversApi = {
       body,
     );
     return data.integrations;
+  },
+  async testCtfdConnection(
+    serverId: string,
+    body: z.infer<typeof schemas.testCtfdConnectionSchema> = {},
+  ) {
+    const { data } = await api.post<{
+      ok: boolean;
+      teamCount: number | null;
+      statsAvailable: boolean;
+      statsChallengeCount: number | null;
+      code: 'success' | 'auth_failed' | 'unreachable' | 'invalid_url' | 'token_required' | 'error';
+    }>(`/servers/${serverId}/integrations/ctfd/test`, body);
+    return data;
   },
   async listWebhooks(serverId: string) {
     const { data } = await api.get<{ webhooks: import('@sydt/shared').ServerWebhook[] }>(
@@ -309,6 +370,10 @@ export const channelsApi = {
   },
   async create(body: z.infer<typeof schemas.createChannelSchema>) {
     const { data } = await api.post<{ channel: Channel }>('/channels', body);
+    return data.channel;
+  },
+  async createTeamChannel(body: z.infer<typeof schemas.createTeamChannelSchema>) {
+    const { data } = await api.post<{ channel: Channel }>('/channels/team', body);
     return data.channel;
   },
   async update(id: string, body: z.infer<typeof schemas.updateChannelSchema>) {
@@ -419,37 +484,227 @@ export const challengesApi = {
   },
 };
 
+export interface TicketFilters {
+  status?: string[];
+  priority?: string[];
+  categoryId?: string;
+  challengeId?: string;
+  assignedToId?: string;
+  teamId?: string;
+  tagId?: string;
+  scope?: 'mine' | 'team' | 'all';
+  q?: string;
+  unassigned?: boolean;
+  sort?: 'updated' | 'created' | 'priority';
+  cursor?: string;
+  limit?: number;
+}
+
 export const ticketsApi = {
-  async list() {
-    const { data } = await api.get<{ tickets: Ticket[] }>('/tickets');
-    return data.tickets;
-  },
-  async get(id: string) {
-    const { data } = await api.get<{ ticket: Ticket; events: TicketEvent[] }>(`/tickets/${id}`);
-    return data;
-  },
-  async create(input: { title: string; body: string; severity?: string; challengeId?: string | null }) {
-    const { data } = await api.post<{ ticket: Ticket }>('/tickets', input);
-    return data.ticket;
-  },
-  async comment(id: string, body: string, internal = false) {
-    const { data } = await api.post<{ ticket: Ticket; event: TicketEvent }>(`/tickets/${id}/comment`, {
-      body,
-      internal,
+  /** Tickets are always scoped to one competition (server). */
+  async list(serverId: string, filters?: TicketFilters) {
+    const { data } = await api.get<TicketListPage>(`/servers/${serverId}/tickets`, {
+      params: {
+        ...(filters?.status?.length ? { status: filters.status.join(',') } : {}),
+        ...(filters?.priority?.length ? { priority: filters.priority.join(',') } : {}),
+        ...(filters?.categoryId ? { categoryId: filters.categoryId } : {}),
+        ...(filters?.challengeId ? { challengeId: filters.challengeId } : {}),
+        ...(filters?.assignedToId ? { assignedToId: filters.assignedToId } : {}),
+        ...(filters?.teamId ? { teamId: filters.teamId } : {}),
+        ...(filters?.tagId ? { tagId: filters.tagId } : {}),
+        ...(filters?.scope ? { scope: filters.scope } : {}),
+        ...(filters?.q ? { q: filters.q } : {}),
+        ...(filters?.unassigned ? { unassigned: true } : {}),
+        ...(filters?.sort ? { sort: filters.sort } : {}),
+        ...(filters?.cursor ? { cursor: filters.cursor } : {}),
+        ...(filters?.limit ? { limit: filters.limit } : {}),
+      },
     });
     return data;
+  },
+  async meta(serverId: string) {
+    const { data } = await api.get<TicketMeta>(`/servers/${serverId}/tickets/meta`);
+    return data;
+  },
+  async get(id: string) {
+    const { data } = await api.get<TicketDetailResponse>(`/tickets/${id}`);
+    return data;
+  },
+  /** Files are optional; with them the request switches to multipart. */
+  async create(
+    serverId: string,
+    input: z.infer<typeof schemas.createTicketSchema>,
+    files?: File[],
+  ) {
+    if (!files?.length) {
+      const { data } = await api.post<{ ticket: Ticket }>(`/servers/${serverId}/tickets`, input);
+      return data.ticket;
+    }
+    const form = new FormData();
+    form.append('title', input.title);
+    form.append('body', input.body);
+    form.append('priority', input.priority);
+    if (input.categoryId) form.append('categoryId', input.categoryId);
+    if (input.challengeId) form.append('challengeId', input.challengeId);
+    if (input.tagIds?.length) form.append('tagIds', input.tagIds.join(','));
+    for (const file of files) form.append('files', file);
+    const { data } = await api.post<{ ticket: Ticket }>(`/servers/${serverId}/tickets`, form);
+    return data.ticket;
+  },
+  async comment(id: string, body: string, internal = false, files?: File[]) {
+    if (!files?.length) {
+      const { data } = await api.post<{ ticket: Ticket; event: TicketEvent }>(
+        `/tickets/${id}/comment`,
+        { body, internal },
+      );
+      return data;
+    }
+    const form = new FormData();
+    form.append('body', body);
+    form.append('internal', String(internal));
+    for (const file of files) form.append('files', file);
+    const { data } = await api.post<{ ticket: Ticket; event: TicketEvent }>(
+      `/tickets/${id}/comment`,
+      form,
+    );
+    return data;
+  },
+  async patch(id: string, patch: z.infer<typeof schemas.patchTicketSchema>) {
+    const { data } = await api.patch<{ ticket: Ticket }>(`/tickets/${id}`, patch);
+    return data.ticket;
   },
   async claim(id: string) {
     const { data } = await api.post<{ ticket: Ticket }>(`/tickets/${id}/claim`);
     return data.ticket;
   },
+  async reopen(id: string, body: string) {
+    const { data } = await api.post<{ ticket: Ticket; event: TicketEvent }>(`/tickets/${id}/reopen`, {
+      body,
+    });
+    return data;
+  },
+  async markRead(id: string) {
+    await api.post(`/tickets/${id}/read`);
+  },
   async setStatus(id: string, status: string) {
-    const { data } = await api.post<{ ticket: Ticket }>(`/tickets/${id}/status`, { status });
+    const { data } = await api.patch<{ ticket: Ticket }>(`/tickets/${id}`, { status });
     return data.ticket;
   },
-  async setSeverity(id: string, severity: string) {
-    const { data } = await api.post<{ ticket: Ticket }>(`/tickets/${id}/severity`, { severity });
+  async setPriority(id: string, priority: string) {
+    const { data } = await api.patch<{ ticket: Ticket }>(`/tickets/${id}`, { priority });
     return data.ticket;
+  },
+  async bulk(serverId: string, input: z.infer<typeof schemas.ticketBulkSchema>) {
+    const { data } = await api.post<TicketBulkResult>(`/servers/${serverId}/tickets/bulk`, input);
+    return data;
+  },
+  async addRelation(id: string, input: z.infer<typeof schemas.ticketRelationSchema>) {
+    const { data } = await api.post<{ relation: TicketRelationDto }>(
+      `/tickets/${id}/relations`,
+      input,
+    );
+    return data.relation;
+  },
+  async removeRelation(id: string, relationId: string) {
+    await api.delete(`/tickets/${id}/relations/${relationId}`);
+  },
+  async announce(id: string, input: z.infer<typeof schemas.ticketAnnounceSchema>) {
+    const { data } = await api.post<{ announcement: Announcement; ticket: Ticket }>(
+      `/tickets/${id}/announce`,
+      input,
+    );
+    return data;
+  },
+  async stats(serverId: string) {
+    const { data } = await api.get<TicketStatsDto>(`/servers/${serverId}/tickets/stats`);
+    return data;
+  },
+  async report(serverId: string) {
+    const { data } = await api.get<TicketReportDto>(`/servers/${serverId}/tickets/report`);
+    return data;
+  },
+};
+
+/** Ticket configuration for one competition (organizer admin surface). */
+export const ticketAdminApi = {
+  async categories(serverId: string) {
+    const { data } = await api.get<{
+      categories: Array<TicketCategoryDto & { ticketCount: number }>;
+    }>(`/servers/${serverId}/ticket-categories`);
+    return data.categories;
+  },
+  async createCategory(serverId: string, input: z.infer<typeof schemas.ticketCategorySchema>) {
+    const { data } = await api.post<{ category: TicketCategoryDto }>(
+      `/servers/${serverId}/ticket-categories`,
+      input,
+    );
+    return data.category;
+  },
+  async patchCategory(
+    serverId: string,
+    categoryId: string,
+    input: Partial<z.infer<typeof schemas.ticketCategorySchema>>,
+  ) {
+    const { data } = await api.patch<{ category: TicketCategoryDto }>(
+      `/servers/${serverId}/ticket-categories/${categoryId}`,
+      input,
+    );
+    return data.category;
+  },
+  async deleteCategory(serverId: string, categoryId: string) {
+    const { data } = await api.delete<{ deactivated: boolean }>(
+      `/servers/${serverId}/ticket-categories/${categoryId}`,
+    );
+    return data;
+  },
+  async tags(serverId: string) {
+    const { data } = await api.get<{ tags: Array<TicketTagDto & { ticketCount: number }> }>(
+      `/servers/${serverId}/ticket-tags`,
+    );
+    return data.tags;
+  },
+  async createTag(serverId: string, input: z.infer<typeof schemas.ticketTagSchema>) {
+    const { data } = await api.post<{ tag: TicketTagDto }>(
+      `/servers/${serverId}/ticket-tags`,
+      input,
+    );
+    return data.tag;
+  },
+  async deleteTag(serverId: string, tagId: string) {
+    await api.delete(`/servers/${serverId}/ticket-tags/${tagId}`);
+  },
+  async competition(serverId: string) {
+    const { data } = await api.get<{ competition: CompetitionSettingsDto }>(
+      `/servers/${serverId}/competition`,
+    );
+    return data.competition;
+  },
+  async patchCompetition(
+    serverId: string,
+    input: z.infer<typeof schemas.patchCompetitionSchema>,
+  ) {
+    const { data } = await api.patch<{ competition: CompetitionSettingsDto }>(
+      `/servers/${serverId}/competition`,
+      input,
+    );
+    return data.competition;
+  },
+};
+
+export const notificationsApi = {
+  async list(params?: { unreadOnly?: boolean; cursor?: string; limit?: number }) {
+    const { data } = await api.get<NotificationsPage>('/notifications', { params });
+    return data;
+  },
+  async markRead(id: string) {
+    const { data } = await api.post<{ unreadCount: number }>(`/notifications/${id}/read`);
+    return data.unreadCount;
+  },
+  async markAllRead() {
+    await api.post('/notifications/read-all');
+  },
+  async remove(id: string) {
+    await api.delete(`/notifications/${id}`);
   },
 };
 
@@ -507,6 +762,40 @@ export const teamsApi = {
       data: { serverId },
     });
     return data.me;
+  },
+  async joinPreview(inviteCode: string, serverId?: string) {
+    const { data } = await api.get<{
+      team: {
+        id: string;
+        name: string;
+        color: string;
+        logoUrl: string | null;
+        memberCount: number;
+        server: ChatServer | null;
+      };
+      alreadyOnTeam: boolean;
+      alreadyOnOtherTeam: boolean;
+    }>('/teams/my/join-preview', {
+      params: { inviteCode, ...(serverId ? { serverId } : {}) },
+    });
+    return data;
+  },
+  async joinByInvite(inviteCode: string, serverId?: string) {
+    const { data } = await api.post<{
+      team: Team;
+      me: SessionUser;
+      alreadyMember: boolean;
+    }>('/teams/my/join', {
+      inviteCode,
+      ...(serverId ? { serverId } : {}),
+    });
+    return data;
+  },
+  async getMyInvite() {
+    const { data } = await api.get<{ inviteCode: string; teamId: string; serverId: string | null }>(
+      '/teams/my/invite',
+    );
+    return data;
   },
 };
 
@@ -603,8 +892,10 @@ export const adminReportsApi = {
 };
 
 export const incidentsApi = {
-  async list() {
-    const { data } = await api.get<{ incidents: Incident[] }>('/incidents');
+  async list(serverId?: string) {
+    const { data } = await api.get<{ incidents: Incident[] }>('/incidents', {
+      params: serverId ? { serverId } : undefined,
+    });
     return data.incidents;
   },
   async get(id: string) {
@@ -632,6 +923,76 @@ export interface CtfdImportStats {
   channelsCreated: number;
   channelsUpdated: number;
   skipped: number;
+}
+
+export interface CtfdChallengesPreviewChannel {
+  key: string;
+  name: string;
+  category: string;
+  description: string;
+  value: string;
+  state: string;
+  ctfdId?: string;
+}
+
+export interface CtfdChallengesPreviewCategory {
+  key: string;
+  name: string;
+  channels: CtfdChallengesPreviewChannel[];
+}
+
+export interface CtfdChallengesPreview {
+  categories: CtfdChallengesPreviewCategory[];
+  totalCategories: number;
+  totalChannels: number;
+}
+
+export type CtfdTeamsPreviewMemberStatus =
+  | 'create'
+  | 'create_username_suffix'
+  | 'update_existing'
+  | 'update_server_member';
+
+export interface CtfdTeamsPreviewMember {
+  key: string;
+  displayName: string;
+  email: string;
+  isCaptain: boolean;
+  status: CtfdTeamsPreviewMemberStatus;
+  plannedUsername: string;
+}
+
+export type CtfdTeamsPreviewTeamStatus = 'create' | 'reuse';
+
+export interface CtfdTeamsPreviewTeam {
+  key: string;
+  name: string;
+  teamStatus: CtfdTeamsPreviewTeamStatus;
+  members: CtfdTeamsPreviewMember[];
+}
+
+export interface CtfdTeamsPreview {
+  teams: CtfdTeamsPreviewTeam[];
+  totalTeams: number;
+  totalMembers: number;
+}
+
+export interface CtfdTeamsImportCredential {
+  teamName: string;
+  username: string;
+  email: string;
+  password: string;
+  role: 'captain' | 'member';
+}
+
+export interface CtfdTeamsImportStats {
+  teamsCreated: number;
+  teamsReused: number;
+  usersCreated: number;
+  usersUpdated: number;
+  serverMembersAdded: number;
+  skipped: number;
+  credentials: CtfdTeamsImportCredential[];
 }
 
 export interface AdminRuntimeInfo {
@@ -755,6 +1116,24 @@ export const adminApi = {
     const { data } = await api.get<AdminRuntimeInfo>('/admin/runtime');
     return data;
   },
+  async previewCtfdChallenges(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    const { data } = await api.post<{ ok: boolean; preview: CtfdChallengesPreview }>(
+      '/admin/import/ctfd/preview',
+      form,
+      { timeout: 60_000 },
+    );
+    return data.preview;
+  },
+  async applyCtfdChallenges(serverId: string, channels: CtfdChallengesPreviewChannel[]) {
+    const { data } = await api.post<{ ok: boolean; stats: CtfdImportStats }>(
+      '/admin/import/ctfd/apply',
+      { serverId, channels },
+      { timeout: 120_000 },
+    );
+    return data;
+  },
   async importCtfd(file: File, serverId: string) {
     const form = new FormData();
     form.append('file', file);
@@ -762,6 +1141,46 @@ export const adminApi = {
     const { data } = await api.post<{ ok: boolean; stats: CtfdImportStats }>('/admin/import/ctfd', form, {
       timeout: 120_000,
     });
+    return data;
+  },
+  async importCtfdTeams(file: File, serverId: string) {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('serverId', serverId);
+    const { data } = await api.post<{ ok: boolean; stats: CtfdTeamsImportStats }>(
+      '/admin/import/ctfd-teams/apply',
+      form,
+      { timeout: 180_000 },
+    );
+    return data;
+  },
+  async previewCtfdTeams(file: File, serverId: string) {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('serverId', serverId);
+    const { data } = await api.post<{ ok: boolean; preview: CtfdTeamsPreview }>(
+      '/admin/import/ctfd-teams/preview',
+      form,
+      { timeout: 60_000 },
+    );
+    return data.preview;
+  },
+  async applyCtfdTeams(
+    serverId: string,
+    members: Array<{
+      key: string;
+      teamName: string;
+      displayName: string;
+      email: string;
+      isCaptain: boolean;
+      serverRoleId?: string;
+    }>,
+  ) {
+    const { data } = await api.post<{ ok: boolean; stats: CtfdTeamsImportStats }>(
+      '/admin/import/ctfd-teams/apply',
+      { serverId, members },
+      { timeout: 180_000 },
+    );
     return data;
   },
   async kpis() {
@@ -805,6 +1224,14 @@ export const adminApi = {
   async setUploadMaxMb(uploadMaxMb: number) {
     const { data } = await api.patch<{ uploadMaxMb: number }>('/admin/settings/upload', { uploadMaxMb });
     return data.uploadMaxMb;
+  },
+  async getRegistrationSettings() {
+    const { data } = await api.get<RegistrationSettings>('/admin/settings/registration');
+    return data;
+  },
+  async setRegistrationSettings(body: z.infer<typeof schemas.patchRegistrationSettingsSchema>) {
+    const { data } = await api.patch<RegistrationSettings>('/admin/settings/registration', body);
+    return data;
   },
   async getBranding() {
     const { data } = await api.get<PlatformBranding>('/admin/settings/branding');

@@ -3,8 +3,11 @@
  *
  * Run: `pnpm seed`
  */
+import { PRIORITY_ORDER } from '@sydt/shared';
 import { prisma } from './prisma.js';
 import { hashPassword } from './lib/password.js';
+import { ensureDefaultChatServer } from './lib/migrate-default-server.js';
+import { ensureCompetitionDefaults } from './lib/ticket-defaults.js';
 import { provisionTeamRoomsForNonStaffCategories } from './modules/categories/category-team-rooms.service.js';
 
 const CHALLENGE_BLUEPRINTS: Array<{
@@ -34,7 +37,7 @@ const CHALLENGE_BLUEPRINTS: Array<{
     category: 'WEB',
     difficulty: 'MEDIUM',
     points: 250,
-    description: 'A search endpoint sanitizes \"quotes\" but forgets a few edge cases. Find the right payload and exfiltrate the flag from the `secrets` table.',
+    description: 'A search endpoint sanitizes "quotes" but forgets a few edge cases. Find the right payload and exfiltrate the flag from the `secrets` table.',
     tags: ['sqli', 'web', 'union'],
     hints: [
       { text: 'Try injecting after the comma.', cost: 20 },
@@ -292,7 +295,7 @@ const SAMPLE_MESSAGES: string[] = [
   '```bash\nnmap -p- --min-rate 2000 ctf.example.com\n```\nNothing interesting on the surface scan.',
   'Got first blood on Cookie Crumbles — the JWT alg confusion bit them again.',
   'Heads up: dropping a hint for **Stack Necromancy** in the next 10 min.',
-  '```python\nimport requests\nfor payload in payloads:\n    r = requests.post(URL, data={\"q\": payload})\n    if \"flag{\" in r.text: print(payload)\n```',
+  '```python\nimport requests\nfor payload in payloads:\n    r = requests.post(URL, data={"q": payload})\n    if "flag{" in r.text: print(payload)\n```',
   'IOC dump from the forensics challenge: `185.220.101.45` `8.8.8.8` and the hash `e99a18c428cb38d5f260853678922e03`.',
   'Anyone want to pair on Curveball? I have the lattice setup but the recovery keeps failing.',
   'Server reboot at 22:00 UTC — should only be a 90s blip. Will re-announce.',
@@ -300,7 +303,7 @@ const SAMPLE_MESSAGES: string[] = [
   'Friendly reminder: please do not DoS the platform :)',
   'GG to **Heap Hawks** on the blood for Babys First Heap.',
   'Hint for Persona Non Grata: their old MySpace is still indexed by archive.org.',
-  '```json\n{\"event\": \"login\", \"user\": \"shadowfax\", \"ip\": \"10.0.5.13\", \"ua\": \"sqlmap/1.6\"}\n```',
+  '```json\n{"event": "login", "user": "shadowfax", "ip": "10.0.5.13", "ua": "sqlmap/1.6"}\n```',
   'I think the OSINT challenge expects a *very* specific casing. Try lowercase no spaces.',
   'Quick PSA: the discord-style mention syntax works in chat — try @captain.',
   '`SHA256: 6dcd4ce23d88e2ee9568ba546c007c63d9131c3aa19b7a4d8acb84ffa3b8b3b6`',
@@ -610,35 +613,49 @@ async function main() {
     }
   }
 
+  console.log('  · Ensuring default competition + ticket metadata...');
+  const defaultServerId = await ensureDefaultChatServer();
+  const { competition, categories: ticketCategories } = await ensureCompetitionDefaults(defaultServerId);
+  const ticketCategoryByKey = new Map(ticketCategories.map((c) => [c.key, c.id]));
+
   console.log('  · Creating tickets...');
   const supportTickets = [
-    { title: 'Web challenge not loading', body: 'The Cookie Crumbles challenge returns 502.', severity: 'HIGH', status: 'OPEN' as const },
-    { title: 'Hint unlock failed', body: 'Tried to unlock hint 2 on Curveball, got 500.', severity: 'MEDIUM', status: 'CLAIMED' as const },
-    { title: 'Flag accepted but no points', body: 'Submitted flag for Reverse Karaoke, got Correct but score did not change.', severity: 'CRITICAL', status: 'IN_PROGRESS' as const },
-    { title: 'Voice channel placeholder', body: 'Is voice coming back online?', severity: 'LOW', status: 'RESOLVED' as const },
-    { title: 'Cannot see #announcements', body: 'Channel is missing from sidebar.', severity: 'LOW', status: 'CLOSED' as const },
+    { title: 'Web challenge not loading', body: 'The Cookie Crumbles challenge returns 502.', priority: 'HIGH', status: 'OPEN' as const, category: 'CHALLENGE_ISSUE' },
+    { title: 'Hint unlock failed', body: 'Tried to unlock hint 2 on Curveball, got 500.', priority: 'MEDIUM', status: 'IN_PROGRESS' as const, category: 'TECHNICAL_ISSUE' },
+    { title: 'Flag accepted but no points', body: 'Submitted flag for Reverse Karaoke, got Correct but score did not change.', priority: 'CRITICAL', status: 'WAITING_FOR_COMPETITOR' as const, category: 'SCORE_ISSUE' },
+    { title: 'VPN drops every few minutes', body: 'Our whole team keeps losing the lab VPN tunnel.', priority: 'LOW', status: 'RESOLVED' as const, category: 'INFRASTRUCTURE' },
+    { title: 'Cannot see #announcements', body: 'Channel is missing from sidebar.', priority: 'LOW', status: 'CLOSED' as const, category: 'OTHER' },
   ];
 
   for (let i = 0; i < supportTickets.length; i++) {
     const t = supportTickets[i]!;
     const opener = teamMembers[i % teamMembers.length]!.user;
     const moderator = staff.find((s) => s.role === 'MODERATOR') ?? staff[0]!;
+    const seq = i + 1;
+    const assigned = t.status !== 'OPEN';
     const ticket = await prisma.ticket.create({
       data: {
-        code: `T-DEMO${i + 1}`,
+        serverId: defaultServerId,
+        seq,
+        code: `${competition.ticketPrefix}-${String(seq).padStart(6, '0')}`,
         title: t.title,
         body: t.body,
-        severity: t.severity,
+        priority: t.priority,
+        priorityRank: PRIORITY_ORDER[t.priority as keyof typeof PRIORITY_ORDER] ?? 1,
         status: t.status,
+        categoryId: ticketCategoryByKey.get(t.category) ?? null,
         openedById: opener.id,
         teamId: opener.teamId,
-        claimedById: t.status !== 'OPEN' ? moderator.id : null,
+        assignedToId: assigned ? moderator.id : null,
+        firstResponseAt: assigned ? new Date() : null,
+        lastOrganizerReplyAt: assigned ? new Date() : null,
         resolvedAt: t.status === 'RESOLVED' || t.status === 'CLOSED' ? new Date() : null,
+        closedAt: t.status === 'CLOSED' ? new Date() : null,
         events: {
           create: [
             { type: 'CREATED', authorId: opener.id, body: t.body },
-            ...(t.status !== 'OPEN'
-              ? [{ type: 'CLAIMED' as const, authorId: moderator.id, body: null }]
+            ...(assigned
+              ? [{ type: 'ASSIGNED' as const, authorId: moderator.id, body: null }]
               : []),
             ...(t.status === 'IN_PROGRESS'
               ? [{

@@ -23,3 +23,12 @@ export async function isServerMember(userId: string, serverId: string): Promise<
   });
   return !!member && !member.bannedAt;
 }
+
+/** Fields applied when a user newly joins a server. */
+export async function serverMemberJoinFields(serverId: string): Promise<{ mustChangePassword: boolean }> {
+  const server = await prisma.chatServer.findUnique({
+    where: { id: serverId },
+    select: { requirePasswordChangeOnJoin: true },
+  });
+  return { mustChangePassword: server?.requirePasswordChangeOnJoin ?? false };
+}

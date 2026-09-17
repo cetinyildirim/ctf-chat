@@ -18,6 +18,11 @@ export async function buildSessionUser(userId: string): Promise<SessionUser> {
   if (withTeam.notifyDefault === 'MENTIONS_ONLY') defaultNotifyMode = 'MENTIONS_ONLY';
   else if (withTeam.notifyDefault === 'NONE') defaultNotifyMode = 'NONE';
 
+  const pendingPwd = await prisma.serverMember.findMany({
+    where: { userId, mustChangePassword: true, bannedAt: null },
+    select: { serverId: true },
+  });
+
   return {
     ...serializeUser(withTeam),
     email: withTeam.email,
@@ -25,5 +30,6 @@ export async function buildSessionUser(userId: string): Promise<SessionUser> {
     locale,
     theme,
     defaultNotifyMode,
+    mustChangePasswordServerIds: pendingPwd.map((r) => r.serverId),
   };
 }

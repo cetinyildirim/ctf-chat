@@ -39,7 +39,6 @@ export const MessageList = React.forwardRef<MessageListHandle, Props>(function M
   const { t } = useI18n();
   const qc = useQueryClient();
   const ref = React.useRef<VirtuosoHandle | null>(null);
-  const atBottomRef = React.useRef(true);
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
 
   const {
@@ -96,20 +95,6 @@ export const MessageList = React.forwardRef<MessageListHandle, Props>(function M
     const id = window.setTimeout(() => scrollToMessage(match[1]!), 400);
     return () => window.clearTimeout(id);
   }, [channelId, messages.length, scrollToMessage]);
-
-  const lastIdRef = React.useRef<string | null>(null);
-  React.useEffect(() => {
-    const last = messages[messages.length - 1];
-    if (!last) return;
-    if (last.id !== lastIdRef.current) {
-      lastIdRef.current = last.id;
-      if (atBottomRef.current) {
-        requestAnimationFrame(() => {
-          ref.current?.scrollToIndex({ index: messages.length - 1, behavior: 'smooth' });
-        });
-      }
-    }
-  }, [messages]);
 
   const handleReact = async (id: string, emoji: string) => {
     try {
@@ -185,10 +170,10 @@ export const MessageList = React.forwardRef<MessageListHandle, Props>(function M
       <Virtuoso
         ref={ref}
         data={messages}
-        followOutput={(isAtBottom) => (isAtBottom ? 'smooth' : false)}
-        atBottomStateChange={(b) => {
-          atBottomRef.current = b;
-        }}
+        followOutput={(isAtBottom) => (isAtBottom ? 'auto' : false)}
+        atBottomThreshold={80}
+        increaseViewportBy={{ top: 200, bottom: 200 }}
+        alignToBottom
         startReached={() => {
           if (hasNextPage && !isFetchingNextPage) {
             void fetchNextPage();

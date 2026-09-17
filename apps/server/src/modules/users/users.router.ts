@@ -26,8 +26,9 @@ const suggestQuery = z.object({
 
 router.get('/suggest', validate(suggestQuery, 'query'), async (req, res, next) => {
   try {
-    const { q, serverId } = req.query as z.infer<typeof suggestQuery>;
-    const limit = (req.query as z.infer<typeof suggestQuery>).limit ?? 10;
+    const query = req.query as unknown as z.infer<typeof suggestQuery>;
+    const { q, serverId } = query;
+    const limit = query.limit ?? 10;
     const needle = q.trim().toLowerCase();
     const meId = req.user!.id;
 

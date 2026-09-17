@@ -3,9 +3,13 @@ import type {
   ChallengeCategory,
   ChallengeDifficulty,
   ChannelType,
+  CompetitionStatus,
   IncidentSeverity,
   IncidentStatus,
-  TicketSeverity,
+  NotificationKind,
+  TicketPolicy,
+  TicketPriority,
+  TicketRelationKind,
   TicketStatus,
   UserStatus,
 } from './constants';
@@ -31,6 +35,8 @@ export interface SessionUser extends PublicUser {
   theme: 'light' | 'dark';
   /** Default channel notify when pref is DEFAULT */
   defaultNotifyMode: 'ALL' | 'MENTIONS_ONLY' | 'NONE';
+  /** Server IDs where this user must change password before continuing */
+  mustChangePasswordServerIds: string[];
 }
 
 export interface Team {
@@ -57,6 +63,7 @@ export interface ChatServer {
   iconUrl: string | null;
   bannerUrl: string | null;
   position: number;
+  requirePasswordChangeOnJoin?: boolean;
 }
 
 export interface ServerMemberProfile {
@@ -86,6 +93,8 @@ export interface Category {
   logoUrl: string | null;
   staffOnly?: boolean;
   serverId?: string | null;
+  /** Present when this category is a team's private workspace. */
+  teamId?: string | null;
 }
 
 export interface Channel {
@@ -211,20 +220,56 @@ export interface ChallengeHint {
   unlocked: boolean;
 }
 
+export interface TicketCategoryDto {
+  id: string;
+  key: string;
+  name: string;
+  position: number;
+  isActive: boolean;
+  requiresChallenge: boolean;
+}
+
+export interface TicketTagDto {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface TicketChallengeRef {
+  id: string;
+  title: string;
+  category: string;
+}
+
 export interface Ticket {
   id: string;
+  serverId: string;
   code: string;
+  seq: number;
   title: string;
   status: TicketStatus;
-  severity: TicketSeverity;
+  priority: TicketPriority;
+  /** @deprecated mirrors `priority`; kept so existing callers keep compiling. */
+  severity: TicketPriority;
+  category: TicketCategoryDto | null;
   challengeId: string | null;
+  challenge: TicketChallengeRef | null;
   channelId: string | null;
   openedBy: PublicUser;
+  assignedTo: PublicUser | null;
+  /** @deprecated mirrors `assignedTo`. */
   claimedBy: PublicUser | null;
   team: Pick<Team, 'id' | 'name' | 'color'> | null;
+  tags: TicketTagDto[];
   body: string;
   createdAt: string;
   updatedAt: string;
+  firstResponseAt: string | null;
+  resolvedAt: string | null;
+  closedAt: string | null;
+  reopenCount: number;
+  messageCount: number;
+  attachmentCount: number;
   unreadCount: number;
 }
 
@@ -233,10 +278,29 @@ export type TicketEventType =
   | 'COMMENT'
   | 'INTERNAL_NOTE'
   | 'CLAIMED'
+  | 'ASSIGNED'
+  | 'UNASSIGNED'
   | 'STATUS_CHANGE'
   | 'SEVERITY_CHANGE'
+  | 'PRIORITY_CHANGE'
+  | 'CATEGORY_CHANGE'
+  | 'CHALLENGE_CHANGE'
+  | 'TAGS_CHANGE'
+  | 'RELATION_ADDED'
+  | 'RELATION_REMOVED'
+  | 'ATTACHMENT_ADDED'
+  | 'REOPENED'
   | 'RESOLVED'
   | 'CLOSED';
+
+export interface TicketAttachmentDto {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  url: string;
+  createdAt: string;
+}
 
 export interface TicketEvent {
   id: string;
@@ -245,7 +309,132 @@ export interface TicketEvent {
   author: PublicUser | null;
   body: string | null;
   meta: Record<string, unknown> | null;
+  attachments: TicketAttachmentDto[];
   createdAt: string;
+}
+
+export interface TicketRelationDto {
+  id: string;
+  kind: TicketRelationKind;
+  /** The ticket on the other side of the relation. */
+  ticket: Pick<Ticket, 'id' | 'code' | 'title' | 'status' | 'priority'>;
+  createdAt: string;
+}
+
+export interface TicketListPage {
+  tickets: Ticket[];
+  nextCursor: string | null;
+  total: number;
+}
+
+/** What the requesting user may do on one ticket, decided server-side. */
+export interface TicketViewerCapabilities {
+  canSeeInternal: boolean;
+  canViewAll: boolean;
+  canAssign: boolean;
+  canClaim: boolean;
+  canManageFields: boolean;
+}
+
+export interface TicketDetailResponse {
+  ticket: Ticket;
+  events: TicketEvent[];
+  relations: TicketRelationDto[];
+  viewer: TicketViewerCapabilities;
+}
+
+export interface TicketMeta {
+  categories: TicketCategoryDto[];
+  tags: TicketTagDto[];
+  statuses: TicketStatus[];
+  priorities: TicketPriority[];
+  challenges: TicketChallengeRef[];
+  competition: CompetitionSettingsDto;
+  /** Whether the current user may open a ticket right now. */
+  canCreate: boolean;
+  canViewAll: boolean;
+  team: Pick<Team, 'id' | 'name' | 'color'> | null;
+}
+
+/** Organizer dashboard (§19) plus the live operations counters (§20). */
+export interface TicketStatsDto {
+  total: number;
+  active: number;
+  statusCounts: Record<TicketStatus, number>;
+  priorityCounts: Record<TicketPriority, number>;
+  unassignedActive: number;
+  arrivals: { last5: number; last15: number; last30: number };
+  perTeam: Array<{ teamId: string; name: string; color: string; count: number }>;
+  perChallenge: Array<{
+    challengeId: string;
+    title: string;
+    category: string | null;
+    count: number;
+  }>;
+  perCategory: Array<{
+    categoryId: string | null;
+    key: string | null;
+    name: string;
+    count: number;
+  }>;
+  perAssignee: Array<{ userId: string; name: string; count: number }>;
+  /** Challenges reported by more than one team. */
+  multiTeam: Array<{ challengeId: string; challengeTitle: string; teamCount: number }>;
+  recent: Ticket[];
+}
+
+/** Post-event report (§46-47). Response times are operational, never scoring. */
+export interface TicketReportDto {
+  total: number;
+  unresolved: number;
+  closed: number;
+  reopened: number;
+  critical: number;
+  avgFirstResponseMinutes: number | null;
+  avgResolutionMinutes: number | null;
+  firstResponseSamples: number;
+  resolutionSamples: number;
+  timeline: Array<{ at: string; count: number }>;
+}
+
+export interface NotificationsPage {
+  notifications: NotificationDto[];
+  nextCursor: string | null;
+  unreadCount: number;
+}
+
+export interface TicketBulkResult {
+  tickets: Ticket[];
+  applied: number;
+  skipped: Array<{ id: string; reason: string }>;
+}
+
+export interface CompetitionSettingsDto {
+  serverId: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  timezone: string;
+  status: CompetitionStatus;
+  ticketPolicy: TicketPolicy;
+  archivedAt: string | null;
+}
+
+export interface NotificationDto {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  href: string | null;
+  refType: string | null;
+  refId: string | null;
+  serverId: string | null;
+  read: boolean;
+  createdAt: string;
+  /**
+   * Structured context for the event. `title`/`body` are stored in English;
+   * clients rebuild the headline from `kind` + `meta` in the viewer's locale.
+   */
+  meta: Record<string, unknown>;
 }
 
 export interface Incident {
@@ -259,6 +448,7 @@ export interface Incident {
   createdAt: string;
   resolvedAt: string | null;
   channelId: string | null;
+  serverId: string | null;
 }
 
 export interface Announcement {
@@ -270,8 +460,11 @@ export interface Announcement {
   createdAt: string;
   scheduledFor: string | null;
   publishedAt?: string | null;
+  expiresAt?: string | null;
   serverId?: string | null;
   channelId?: string | null;
+  /** Set when the announcement was raised from a ticket. */
+  sourceTicketId?: string | null;
 }
 
 export interface ServerIntegrations {
@@ -282,6 +475,45 @@ export interface ServerIntegrations {
   ctfdBaseUrl: string | null;
   ctfdAccessTokenConfigured: boolean;
 }
+
+export type CtfdScoreboardEntryDto = {
+  place: number;
+  ctfdTeamId: number | null;
+  name: string;
+  score: number;
+  solves: number | null;
+  localTeam: { id: string; name: string; color: string; logoUrl: string | null } | null;
+};
+
+export type CtfdChallengeSolveStatDto = {
+  id: number;
+  name: string;
+  solves: number;
+};
+
+export type CtfdCategoryStatDto = {
+  name: string;
+  solves: number;
+};
+
+export type CtfdStatsSnapshotDto = {
+  available: boolean;
+  challengeCount: number;
+  totalSolves: number;
+  registeredTeams: number | null;
+  challengeSolves: CtfdChallengeSolveStatDto[];
+  categories: CtfdCategoryStatDto[];
+};
+
+export type CtfdScoreboardSnapshotDto = {
+  configured: boolean;
+  /** URL saved but API token missing — CTFd data must not load until token is set. */
+  needsToken?: boolean;
+  scoreboardUrl: string | null;
+  generatedAt: string;
+  entries: CtfdScoreboardEntryDto[];
+  stats: CtfdStatsSnapshotDto | null;
+};
 
 export interface CtfdTeamStatsDto {
   place: number | null;
@@ -371,6 +603,8 @@ export interface AuditLogEntry {
   action: string;
   target: string | null;
   meta: Record<string, unknown> | null;
+  ip: string | null;
+  userAgent: string | null;
   createdAt: string;
 }
 

@@ -191,7 +191,7 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
   };
 
   return (
-    <div className="border-t border-white/5 bg-bg-deep/40 px-4 py-3 backdrop-blur-md">
+    <div className="relative z-20 border-t border-white/5 bg-bg-deep/40 px-4 py-3 backdrop-blur-md">
       <MessageComposerHelp draft={value} />
       {replyTo ? (
         <div className="mb-2 flex items-center gap-2 rounded-md border-l-2 border-accent-violet/60 bg-accent-violet/5 px-2 py-1 text-xs text-fg-subtle">

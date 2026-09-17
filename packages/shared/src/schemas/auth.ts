@@ -33,3 +33,23 @@ export const registerSchema = z
     message: 'Passwords do not match',
   });
 export type RegisterInput = z.infer<typeof registerSchema>;
+
+export const newPasswordSchema = z
+  .string()
+  .min(8, 'Minimum 8 characters')
+  .max(200, 'Too long')
+  .regex(/[A-Z]/, 'Add an uppercase letter')
+  .regex(/[a-z]/, 'Add a lowercase letter')
+  .regex(/[0-9]/, 'Add a digit');
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Enter your current password').max(200),
+    newPassword: newPasswordSchema,
+    confirmPassword: z.string(),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, {
+    path: ['confirmPassword'],
+    message: 'Passwords do not match',
+  });
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

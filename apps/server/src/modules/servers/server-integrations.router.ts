@@ -11,6 +11,7 @@ import { serializeAnnouncement } from '../serializers.js';
 import { publishAnnouncementById } from '../../lib/announcement-publish.js';
 import { assertServerPermission } from '../../lib/server-permissions.js';
 import { assertSafeOutboundUrl } from '../../lib/url-safety.js';
+import { testCtfdConnection, invalidateCtfdCaches } from '../../lib/ctfd-client.js';
 
 const router: Router = Router({ mergeParams: true });
 router.use(requireAuth);
@@ -55,6 +56,9 @@ router.patch(
       if (body.ctfdBaseUrl !== undefined && body.ctfdBaseUrl) {
         await assertSafeOutboundUrl(body.ctfdBaseUrl);
       }
+      if (body.ctfdBaseUrl !== undefined || body.ctfdAccessToken !== undefined) {
+        invalidateCtfdCaches();
+      }
       const server = await prisma.chatServer.update({
         where: { id: serverId },
         data: {
@@ -73,7 +77,10 @@ router.patch(
         actorId: req.user!.id,
         action: 'server.integrations.patch',
         target: serverId,
-        meta: body,
+        meta: {
+          ...body,
+          ctfdAccessToken: body.ctfdAccessToken !== undefined ? '[redacted]' : undefined,
+        },
       });
       res.json({
         integrations: {
@@ -85,6 +92,32 @@ router.patch(
           ctfdAccessTokenConfigured: !!server.ctfdAccessToken,
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  '/integrations/ctfd/test',
+  requirePermission(Permission.ADMIN_DASHBOARD),
+  validate(idSchema, 'params'),
+  validate(schemas.testCtfdConnectionSchema),
+  async (req, res, next) => {
+    try {
+      const serverId = req.params.id!;
+      const body = req.body as z.infer<typeof schemas.testCtfdConnectionSchema>;
+      const server = await prisma.chatServer.findUnique({ where: { id: serverId } });
+      if (!server) throw NotFound();
+
+      const baseUrl = body.ctfdBaseUrl?.trim() || server.ctfdBaseUrl;
+      if (!baseUrl) throw BadRequest('CTFd URL is required');
+
+      const accessToken =
+        body.ctfdAccessToken !== undefined ? body.ctfdAccessToken?.trim() || null : server.ctfdAccessToken;
+
+      const result = await testCtfdConnection(baseUrl, accessToken);
+      res.json(result);
     } catch (err) {
       next(err);
     }

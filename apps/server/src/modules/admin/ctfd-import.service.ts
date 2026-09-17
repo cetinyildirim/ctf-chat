@@ -3,7 +3,6 @@ import { nanoid } from 'nanoid';
 import { prisma } from '../../prisma.js';
 import { emitChannelsRefresh } from '../../realtime/broadcasters.js';
 import type { Prisma } from '@prisma/client';
-import { provisionTeamRoomsForCategory } from '../categories/category-team-rooms.service.js';
 
 const DUMMY_FLAG = 'ctfd-import-not-used-in-chat';
 
@@ -15,7 +14,7 @@ function slugify(name: string): string {
     .slice(0, 48);
 }
 
-type NormRow = {
+export type NormRow = {
   id?: string;
   name: string;
   category: string;
@@ -24,9 +23,7 @@ type NormRow = {
   state: string;
 };
 
-function normalizeRecords(
-  rows: Record<string, string>[],
-): NormRow[] {
+function normalizeRecords(rows: Record<string, string>[]): NormRow[] {
   const out: NormRow[] = [];
   for (const raw of rows) {
     const n: Record<string, string> = {};
@@ -48,6 +45,98 @@ function normalizeRecords(
   return out;
 }
 
+export function parseChallengesFromCsv(csvText: string): NormRow[] {
+  try {
+    const records = parse(csvText, {
+      columns: true,
+      skip_empty_lines: true,
+      relax_quotes: true,
+      relax_column_count: true,
+      trim: true,
+      bom: true,
+    }) as Record<string, string>[];
+    return normalizeRecords(records);
+  } catch {
+    return [];
+  }
+}
+
+export function challengeRowKey(row: NormRow): string {
+  return row.id ? `id:${row.id}` : `${row.category}::${row.name}`;
+}
+
+export interface CtfdChallengesPreviewChannel {
+  key: string;
+  name: string;
+  category: string;
+  description: string;
+  value: string;
+  state: string;
+  ctfdId?: string;
+}
+
+export interface CtfdChallengesPreviewCategory {
+  key: string;
+  name: string;
+  channels: CtfdChallengesPreviewChannel[];
+}
+
+export interface CtfdChallengesPreview {
+  categories: CtfdChallengesPreviewCategory[];
+  totalCategories: number;
+  totalChannels: number;
+}
+
+export function previewCtfdChallengesCsv(csvText: string): CtfdChallengesPreview {
+  const rows = parseChallengesFromCsv(csvText);
+  const byCat = new Map<string, NormRow[]>();
+  for (const row of rows) {
+    const list = byCat.get(row.category) ?? [];
+    list.push(row);
+    byCat.set(row.category, list);
+  }
+
+  const categories: CtfdChallengesPreviewCategory[] = [...byCat.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, catRows]) => ({
+      key: name,
+      name,
+      channels: catRows.map((r) => ({
+        key: challengeRowKey(r),
+        name: r.name,
+        category: r.category,
+        description: r.description,
+        value: r.value,
+        state: r.state,
+        ctfdId: r.id,
+      })),
+    }));
+
+  return {
+    categories,
+    totalCategories: categories.length,
+    totalChannels: rows.length,
+  };
+}
+
+export function challengeItemToRow(item: {
+  name: string;
+  category: string;
+  description: string;
+  value: string;
+  state: string;
+  ctfdId?: string;
+}): NormRow {
+  return {
+    id: item.ctfdId,
+    name: item.name,
+    category: item.category,
+    description: item.description,
+    value: item.value,
+    state: item.state,
+  };
+}
+
 export interface CtfdImportResult {
   categoriesCreated: number;
   categoriesReused: number;
@@ -64,7 +153,6 @@ function challengeSlugForRow(serverId: string, row: NormRow): string {
   return `ctfd-${serverPart}-${slugify(row.category)}-${slugify(row.name)}`;
 }
 
-/** Resolve challenge for this server; never reuse a challenge already bound to another server's channel. */
 async function resolveChallengeForImport(
   tx: Prisma.TransactionClient,
   serverId: string,
@@ -75,7 +163,6 @@ async function resolveChallengeForImport(
   const scopedSlug = challengeSlugForRow(serverId, row);
   let existing = await tx.challenge.findUnique({ where: { slug: scopedSlug } });
 
-  // Re-import on same server using legacy global slugs (ctfd-{id})
   if (!existing && row.id) {
     const legacy = await tx.challenge.findUnique({ where: { slug: `ctfd-${row.id}` } });
     if (legacy) {
@@ -120,16 +207,7 @@ async function resolveChallengeForImport(
   return ch.id;
 }
 
-export async function importCtfdChallengesCsv(csvText: string, serverId: string): Promise<CtfdImportResult> {
-  const records = parse(csvText, {
-    columns: true,
-    skip_empty_lines: true,
-    relax_quotes: true,
-    relax_column_count: true,
-    trim: true,
-  }) as Record<string, string>[];
-
-  const rows = normalizeRecords(records);
+export async function importCtfdChallengeRows(rows: NormRow[], serverId: string): Promise<CtfdImportResult> {
   const result: CtfdImportResult = {
     categoriesCreated: 0,
     categoriesReused: 0,
@@ -232,12 +310,10 @@ export async function importCtfdChallengesCsv(csvText: string, serverId: string)
     }
   });
 
-  const uniqCatIds = [...new Set(catMap.values())];
-  for (const cid of uniqCatIds) {
-    const cat = await prisma.category.findUnique({ where: { id: cid } });
-    if (cat) await provisionTeamRoomsForCategory(prisma, cat);
-  }
-
   emitChannelsRefresh(serverId);
   return result;
+}
+
+export async function importCtfdChallengesCsv(csvText: string, serverId: string): Promise<CtfdImportResult> {
+  return importCtfdChallengeRows(parseChallengesFromCsv(csvText), serverId);
 }

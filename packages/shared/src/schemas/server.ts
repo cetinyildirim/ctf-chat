@@ -14,6 +14,7 @@ export const createChatServerSchema = z.object({
 export const updateChatServerSchema = z.object({
   name: z.string().min(2).max(80).optional(),
   description: z.string().max(500).optional().nullable(),
+  requirePasswordChangeOnJoin: z.boolean().optional(),
 });
 
 export const patchServerMemberSchema = z.object({

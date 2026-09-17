@@ -1,4 +1,6 @@
 'use client';
+import { useI18n } from '@/components/providers/LocaleProvider';
+import { ticketPriorityLabel } from '@/i18n/ticket-labels';
 import { cn } from '@/lib/utils';
 
 type Severity = 'INFO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -18,6 +20,7 @@ interface SeverityPillProps {
 }
 
 export function SeverityPill({ severity, className, dot }: SeverityPillProps) {
+  const { t } = useI18n();
   const key = (severity.toUpperCase() as Severity) in colors ? (severity.toUpperCase() as Severity) : 'INFO';
   return (
     <span
@@ -28,7 +31,7 @@ export function SeverityPill({ severity, className, dot }: SeverityPillProps) {
       )}
     >
       {dot && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
-      {key}
+      {ticketPriorityLabel(t, key)}
     </span>
   );
 }

@@ -7,6 +7,9 @@ import { validate } from '../../middleware/validate.js';
 import { authLimiter, sensitiveAuthLimiter } from '../../middleware/ratelimit.js';
 import { requireAuth, COOKIE_NAMES, type AuthUser } from '../../middleware/auth.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
+import { ensureUserHasHomeServer } from '../../lib/migrate-default-server.js';
+import { assignDefaultRoleToMember } from '../../lib/assign-default-server-role.js';
+import { serverMemberJoinFields } from '../../lib/server-membership.js';
 import {
   hashToken,
   signAccessToken,
@@ -105,14 +108,18 @@ router.post('/register', authLimiter, validate(schemas.registerSchema), async (r
     });
 
     if (teamId && teamServerId) {
+      const joinFields = await serverMemberJoinFields(teamServerId);
       await prisma.serverTeamMember.create({
         data: { userId: user.id, serverId: teamServerId, teamId },
       });
       await prisma.serverMember.upsert({
         where: { userId_serverId: { userId: user.id, serverId: teamServerId } },
-        create: { userId: user.id, serverId: teamServerId },
+        create: { userId: user.id, serverId: teamServerId, ...joinFields },
         update: {},
       });
+      await assignDefaultRoleToMember(user.id, teamServerId);
+    } else {
+      await ensureUserHasHomeServer(user.id);
     }
 
     const { access, refresh } = await issueTokens(await authPayloadForUser(user.id));
@@ -134,6 +141,10 @@ router.post('/login', authLimiter, validate(schemas.loginSchema), async (req, re
     if (!user || user.isBanned) throw Unauthorized('Invalid credentials', 'BAD_CREDENTIALS');
     const ok = await verifyPassword(user.passwordHash, data.password);
     if (!ok) throw Unauthorized('Invalid credentials', 'BAD_CREDENTIALS');
+
+    // Accounts created before open-registration started placing users on the
+    // default server would otherwise land with an empty rail. Heal that once.
+    await ensureUserHasHomeServer(user.id);
 
     const { access, refresh } = await issueTokens(await authPayloadForUser(user.id));
     writeAuthCookies(res, access, refresh);
@@ -201,6 +212,7 @@ router.get('/csrf', (_req, res) => {
 
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
+    await ensureUserHasHomeServer((req.user as AuthUser).id);
     const me = await buildSessionUser((req.user as AuthUser).id);
     res.json({ user: me });
   } catch (err) {
@@ -241,5 +253,42 @@ router.post('/logout-all', sensitiveAuthLimiter, requireAuth, async (req, res, n
     next(err);
   }
 });
+
+router.post(
+  '/change-password',
+  sensitiveAuthLimiter,
+  requireAuth,
+  validate(schemas.changePasswordSchema),
+  async (req, res, next) => {
+    try {
+      const data = req.body as z.infer<typeof schemas.changePasswordSchema>;
+      const userId = req.user!.id;
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user || user.isBanned) throw Unauthorized();
+
+      const ok = await verifyPassword(user.passwordHash, data.currentPassword);
+      if (!ok) throw Unauthorized('Current password is incorrect', 'BAD_PASSWORD');
+      if (data.currentPassword === data.newPassword) {
+        throw BadRequest('New password must be different from the current password');
+      }
+
+      const passwordHash = await hashPassword(data.newPassword);
+      await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+      await prisma.serverMember.updateMany({
+        where: { userId },
+        data: { mustChangePassword: false },
+      });
+
+      await revokeAllRefreshTokens(userId);
+      const { access, refresh } = await issueTokens(await authPayloadForUser(userId));
+      writeAuthCookies(res, access, refresh);
+
+      await audit({ actorId: userId, action: 'user.password_change', target: userId });
+      res.json({ user: await buildSessionUser(userId) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 export default router;

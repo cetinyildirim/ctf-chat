@@ -4,15 +4,16 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Lock, ChevronRight } from 'lucide-react';
+import { Lock, ChevronRight, Plus } from 'lucide-react';
 import { ChannelNotifyMode, type Channel } from '@sydt/shared';
 import { ChannelNotifyContextMenu } from '@/components/channels/ChannelNotifyContextMenu';
-import { channelsApi } from '@/lib/api/endpoints';
+import { channelsApi, serversApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/query/client';
 import { useServerStore } from '@/store/server';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { useUIStore } from '@/store/ui';
+import { useChannelUnreadStore } from '@/store/channel-unread';
 import { RoleBadge } from '@/components/common/RoleBadge';
 import { Avatar } from '@/components/ui/avatar';
 import { StatusDot } from '@/components/common/StatusDot';
@@ -22,6 +23,10 @@ import { usePlatformBranding } from '@/components/providers/PlatformBrandingProv
 import type { Category } from '@sydt/shared';
 import { categoryHeaderBadgeDataUrl, channelCategoryBadgeDataUrl } from '@/lib/branding/logo-badges';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { unwrapApiError } from '@/lib/api/axios';
+import { toast } from 'sonner';
 
 export function ChannelSidebar() {
   const pathname = usePathname() ?? '/';
@@ -45,6 +50,22 @@ export function ChannelSidebar() {
     queryFn: () => channelsApi.list(activeServerId!),
     enabled: !!user && !!activeServerId,
     staleTime: 60_000,
+  });
+
+  const { data: myTeam } = useQuery({
+    queryKey: queryKeys.serverMyTeam(activeServerId ?? ''),
+    queryFn: () => serversApi.getMyTeam(activeServerId!),
+    enabled: !!user && !!activeServerId,
+  });
+
+  const createTeamChannelMut = useMutation({
+    mutationFn: (input: { categoryId: string; name: string }) => channelsApi.createTeamChannel(input),
+    onSuccess: () => {
+      toast.success(t.teamChannelCreatedOk);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channels(activeServerId ?? '') });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channelsAll });
+    },
+    onError: (err) => toast.error(unwrapApiError(err).message),
   });
 
   const channelsByCategory = React.useMemo(() => {
@@ -72,8 +93,48 @@ export function ChannelSidebar() {
     return [...data.categories].sort((a, b) => a.position - b.position);
   }, [data]);
 
+  const visibleCategoryIds = React.useMemo(() => {
+    const ids: string[] = [];
+    for (const cat of orderedCategories) {
+      const list = channelsByCategory.get(cat.id) ?? [];
+      if (list.length === 0 && !cat.teamId) continue;
+      ids.push(cat.id);
+    }
+    if ((channelsByCategory.get(null) ?? []).length > 0) ids.push('uncategorized');
+    return ids;
+  }, [orderedCategories, channelsByCategory]);
+
+  const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(() => new Set());
+
+  React.useEffect(() => {
+    setCollapsedIds(new Set());
+  }, [activeServerId]);
+
+  const expandAllCategories = () => setCollapsedIds(new Set());
+  const collapseAllCategories = () => setCollapsedIds(new Set(visibleCategoryIds));
+  const toggleCategory = (categoryId: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
+      return next;
+    });
+  };
+
   const channelInRoom = pathname.startsWith('/channels/');
   const activeChannelId = channelInRoom ? params.id : null;
+  const myTeamId = myTeam?.id ?? null;
+  const unreadByChannel = useChannelUnreadStore((s) => s.unreadByChannel);
+  const markRead = useChannelUnreadStore((s) => s.markRead);
+  const setUnreadUserId = useChannelUnreadStore((s) => s.setUserId);
+
+  React.useEffect(() => {
+    setUnreadUserId(user?.id ?? null);
+  }, [user?.id, setUnreadUserId]);
+
+  React.useEffect(() => {
+    if (activeChannelId) markRead(activeChannelId);
+  }, [activeChannelId, markRead]);
 
   const navBody = (
     <>
@@ -96,6 +157,28 @@ export function ChannelSidebar() {
         </div>
       </div>
 
+      {!isLoading && visibleCategoryIds.length > 0 ? (
+        <div className="flex shrink-0 items-center justify-center border-b border-white/5 px-3 py-2">
+          <div className="inline-flex items-center gap-0.5 rounded-md border border-white/12 bg-white/[0.04] p-0.5">
+            <button
+              type="button"
+              onClick={expandAllCategories}
+              className="rounded px-2.5 py-1 text-[12.5px] font-medium text-fg-subtle transition-colors hover:bg-white/10 hover:text-fg"
+            >
+              {t.channelsExpandAll}
+            </button>
+            <span className="h-3.5 w-px shrink-0 bg-white/15" aria-hidden />
+            <button
+              type="button"
+              onClick={collapseAllCategories}
+              className="rounded px-2.5 py-1 text-[12.5px] font-medium text-fg-subtle transition-colors hover:bg-white/10 hover:text-fg"
+            >
+              {t.channelsCollapseAll}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <ScrollArea className="min-h-0 flex-1 basis-0">
         <nav className="space-y-4 px-2 py-3 pb-4">
           {isLoading ? (
@@ -108,9 +191,27 @@ export function ChannelSidebar() {
 
           {orderedCategories.map((cat) => {
             const list = channelsByCategory.get(cat.id) ?? [];
-            if (list.length === 0) return null;
+            if (list.length === 0 && !cat.teamId) return null;
+            const canAddTeamChannel = !!cat.teamId && !!myTeamId && cat.teamId === myTeamId;
+            const categoryUnread = list.some((ch) => !!unreadByChannel[ch.id]);
             return (
-              <CategoryGroup key={cat.id} name={cat.name} logoUrl={cat.logoUrl} categoryId={cat.id}>
+              <CategoryGroup
+                key={cat.id}
+                name={cat.name}
+                logoUrl={cat.logoUrl}
+                categoryId={cat.id}
+                open={!collapsedIds.has(cat.id)}
+                onToggle={() => toggleCategory(cat.id)}
+                unread={categoryUnread}
+                footer={
+                  canAddTeamChannel ? (
+                    <TeamChannelComposer
+                      busy={createTeamChannelMut.isPending}
+                      onCreate={(name) => createTeamChannelMut.mutate({ categoryId: cat.id, name })}
+                    />
+                  ) : null
+                }
+              >
                 {list.map((channel) => {
                   const meta = channel.categoryId ? categoryMeta.get(channel.categoryId) : null;
                   const categoryLabel = meta?.name ?? t.uncategorized;
@@ -120,9 +221,13 @@ export function ChannelSidebar() {
                       channel={channel}
                       categoryLabel={categoryLabel}
                       active={activeChannelId === channel.id}
+                      unread={!!unreadByChannel[channel.id]}
                       notifyBusy={notifyMut.isPending}
                       setNotify={(mode) =>
-                        notifyMut.mutate({ channelId: channel.id, mode }, { onSuccess: () => setChannelsDrawerOpen(false) })
+                        notifyMut.mutate(
+                          { channelId: channel.id, mode },
+                          { onSuccess: () => setChannelsDrawerOpen(false) },
+                        )
                       }
                       onPick={() => setChannelsDrawerOpen(false)}
                     />
@@ -133,16 +238,27 @@ export function ChannelSidebar() {
           })}
 
           {channelsByCategory.get(null) && channelsByCategory.get(null)!.length > 0 ? (
-            <CategoryGroup name={t.uncategorized} logoUrl={null} categoryId="uncategorized">
+            <CategoryGroup
+              name={t.uncategorized}
+              logoUrl={null}
+              categoryId="uncategorized"
+              open={!collapsedIds.has('uncategorized')}
+              onToggle={() => toggleCategory('uncategorized')}
+              unread={channelsByCategory.get(null)!.some((ch) => !!unreadByChannel[ch.id])}
+            >
               {channelsByCategory.get(null)!.map((channel) => (
                 <ChannelRow
                   key={channel.id}
                   channel={channel}
                   categoryLabel={t.uncategorized}
                   active={activeChannelId === channel.id}
+                  unread={!!unreadByChannel[channel.id]}
                   notifyBusy={notifyMut.isPending}
                   setNotify={(mode) =>
-                    notifyMut.mutate({ channelId: channel.id, mode }, { onSuccess: () => setChannelsDrawerOpen(false) })
+                    notifyMut.mutate(
+                      { channelId: channel.id, mode },
+                      { onSuccess: () => setChannelsDrawerOpen(false) },
+                    )
                   }
                   onPick={() => setChannelsDrawerOpen(false)}
                 />
@@ -183,34 +299,110 @@ function CategoryGroup({
   name,
   logoUrl,
   categoryId,
+  open,
+  onToggle,
   children,
+  footer,
+  unread = false,
 }: {
   name: string;
   logoUrl?: string | null;
   categoryId: string;
+  open: boolean;
+  onToggle: () => void;
   children: React.ReactNode;
+  footer?: React.ReactNode;
+  unread?: boolean;
 }) {
-  const [open, setOpen] = React.useState(true);
   const badge = categoryHeaderBadgeDataUrl(name, categoryId);
   return (
     <div className="space-y-1">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="group flex w-full items-center gap-2 px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-fg hover:text-fg-subtle"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={cn(
+          'group flex w-full items-center gap-2 px-2 text-[13px] uppercase tracking-[0.12em] hover:text-fg',
+          unread ? 'font-bold text-white' : 'font-semibold text-muted-fg',
+        )}
       >
-        <ChevronRight
-          className={cn(
-            'h-3 w-3 shrink-0 transition-transform',
-            open ? 'rotate-90' : '',
-          )}
-        />
+        <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', open ? 'rotate-90' : '')} />
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={logoUrl ?? badge} alt="" className="h-8 w-8 shrink-0 rounded-lg object-cover" />
         <span className="min-w-0 truncate">{name}</span>
       </button>
-      {open ? <div className="space-y-0.5">{children}</div> : null}
+      {open ? (
+        <div className="space-y-0.5">
+          {children}
+          {footer}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function TeamChannelComposer({
+  busy,
+  onCreate,
+}: {
+  busy: boolean;
+  onCreate: (name: string) => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = React.useState(false);
+  const [name, setName] = React.useState('');
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-0.5 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-fg hover:bg-white/5 hover:text-fg"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        <span>{t.teamChannelAdd}</span>
+      </button>
+    );
+  }
+
+  return (
+    <form
+      className="mt-0.5 space-y-1.5 rounded-md border border-white/10 bg-white/[0.03] p-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const trimmed = name.trim();
+        if (trimmed.length < 2 || busy) return;
+        onCreate(trimmed);
+        setName('');
+        setOpen(false);
+      }}
+    >
+      <Input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder={t.teamChannelName}
+        aria-label={t.teamChannelName}
+        className="h-8 text-sm"
+      />
+      <div className="flex gap-1.5">
+        <Button type="submit" size="sm" disabled={busy || name.trim().length < 2} className="h-7 px-2 text-xs">
+          {t.teamChannelCreate}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2 text-xs"
+          onClick={() => {
+            setOpen(false);
+            setName('');
+          }}
+        >
+          ×
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -218,6 +410,7 @@ function ChannelRow({
   channel,
   categoryLabel,
   active,
+  unread,
   notifyBusy,
   setNotify,
   onPick,
@@ -225,6 +418,7 @@ function ChannelRow({
   channel: Channel;
   categoryLabel: string;
   active: boolean;
+  unread: boolean;
   notifyBusy: boolean;
   setNotify: (m: ChannelNotifyMode) => void;
   onPick: () => void;
@@ -240,18 +434,20 @@ function ChannelRow({
         href={`/channels/${channel.id}`}
         onClick={onPick}
         className={cn(
-          'group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
+          'group flex items-center gap-2 rounded-md px-2 py-1.5 text-[15px] transition-colors',
           active
-            ? 'bg-accent-cyan/10 text-fg shadow-[inset_2px_0_0_0_rgba(34,211,238,0.7)]'
-            : 'text-fg-subtle hover:bg-white/5 hover:text-fg',
+            ? 'bg-accent-cyan/10 text-white shadow-[inset_2px_0_0_0_rgba(34,211,238,0.7)]'
+            : unread
+              ? 'font-bold text-white hover:bg-white/5'
+              : 'font-medium text-fg-subtle hover:bg-white/5 hover:text-fg',
           channel.isLocked && 'opacity-70',
         )}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt="" className="h-8 w-8 shrink-0 rounded-lg object-cover" />
-        <span className="truncate font-medium">{channel.name}</span>
+        <span className={cn('truncate', unread || active ? 'font-bold' : 'font-medium')}>{channel.name}</span>
         <span className="ml-auto flex items-center gap-1">
-          {channel.isPrivate ? <Lock className="h-3 w-3 text-muted-fg" /> : null}
+          {channel.isPrivate ? <Lock className={cn('h-3.5 w-3.5', unread ? 'text-white/70' : 'text-muted-fg')} /> : null}
           {channel.isLocked ? (
             <span className="rounded bg-accent-rose/15 px-1 py-0.5 text-[9px] uppercase text-accent-rose">
               {t.channelLockedBadge}

@@ -9,6 +9,7 @@ import {
   FolderTree,
   Hash,
   LayoutDashboard,
+  LifeBuoy,
   Loader2,
   Smile,
   Trash2,
@@ -19,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ChatServer } from '@sydt/shared';
+import { Permission } from '@sydt/shared';
 import { serversApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/query/client';
 import { unwrapApiError } from '@/lib/api/axios';
@@ -39,9 +41,12 @@ import { ServerSettingsBannedPanel } from '@/components/servers/ServerSettingsBa
 import { ServerSettingsIntegrationsPanel } from '@/components/servers/ServerSettingsIntegrationsPanel';
 import { ServerSettingsChannelsPanel } from '@/components/servers/ServerSettingsChannelsPanel';
 import { ServerSettingsImportPanel } from '@/components/servers/ServerSettingsImportPanel';
+import { ServerSettingsTicketsPanel } from '@/components/servers/ServerSettingsTicketsPanel';
 import { TeamsAdminPanel } from '@/components/admin/AdminDashboard';
 import { ServerSettingsMembersPanel } from '@/components/servers/ServerSettingsMembersPanel';
 import { useServerStore } from '@/store/server';
+import { Switch } from '@/components/ui/switch';
+import { useAuthStore } from '@/store/auth';
 
 type Tab =
   | 'overview'
@@ -54,6 +59,7 @@ type Tab =
   | 'invites'
   | 'banned'
   | 'teams'
+  | 'tickets'
   | 'integrations';
 
 const NAV: { id: Tab; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -67,6 +73,7 @@ const NAV: { id: Tab; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'teams', icon: UserPlus },
   { id: 'invites', icon: ClipboardList },
   { id: 'banned', icon: Users },
+  { id: 'tickets', icon: LifeBuoy },
   { id: 'integrations', icon: Plug },
 ];
 
@@ -85,6 +92,8 @@ export function ServerSettingsDialog({
   const qc = useQueryClient();
   const activeServerId = useServerStore((s) => s.activeServerId);
   const setActiveServerId = useServerStore((s) => s.setActiveServerId);
+  const me = useAuthStore((s) => s.user);
+  const canManageServer = !!me?.permissions.includes(Permission.ADMIN_DASHBOARD);
 
   const { data: servers = [] } = useQuery({
     queryKey: queryKeys.servers,
@@ -96,15 +105,34 @@ export function ServerSettingsDialog({
   const [tab, setTab] = React.useState<Tab>('overview');
   const [name, setName] = React.useState(server.name);
   const [description, setDescription] = React.useState(server.description ?? '');
+  const [requirePasswordChange, setRequirePasswordChange] = React.useState(
+    server.requirePasswordChangeOnJoin ?? false,
+  );
 
   React.useEffect(() => {
     setName(server.name);
     setDescription(server.description ?? '');
+    setRequirePasswordChange(server.requirePasswordChangeOnJoin ?? false);
     if (!open) setTab('overview');
   }, [server, open]);
 
   const saveMut = useMutation({
-    mutationFn: () => serversApi.update(server.id, { name: name.trim(), description }),
+    mutationFn: () =>
+      serversApi.update(server.id, {
+        name: name.trim(),
+        description,
+        requirePasswordChangeOnJoin: requirePasswordChange,
+      }),
+    onSuccess: () => {
+      toast.success(t.profileSavedToast);
+      void qc.invalidateQueries({ queryKey: queryKeys.servers });
+    },
+    onError: (err) => toast.error(unwrapApiError(err).message),
+  });
+
+  const pwdPolicyMut = useMutation({
+    mutationFn: (value: boolean) =>
+      serversApi.update(server.id, { requirePasswordChangeOnJoin: value }),
     onSuccess: () => {
       toast.success(t.profileSavedToast);
       void qc.invalidateQueries({ queryKey: queryKeys.servers });
@@ -183,7 +211,7 @@ export function ServerSettingsDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[88] bg-black/75 backdrop-blur-sm" />
-        <Dialog.Content className="fixed inset-4 z-[89] flex overflow-hidden rounded-xl border border-white/10 bg-[#1e1f22] shadow-2xl outline-none md:inset-8 lg:inset-12">
+        <Dialog.Content className="fixed inset-3 z-[89] flex overflow-hidden rounded-xl border border-white/10 bg-[#1e1f22] shadow-2xl outline-none md:inset-6 lg:inset-8">
           <Dialog.Title className="sr-only">{t.serverSettingsTitle}</Dialog.Title>
           <div className="flex w-56 shrink-0 flex-col border-r border-white/8 bg-[#161719]">
             <div className="border-b border-white/8 px-4 py-3 text-sm font-semibold text-fg">{server.name}</div>
@@ -224,9 +252,10 @@ export function ServerSettingsDialog({
               </Dialog.Close>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-6">
+            <div className="min-h-0 flex-1 overflow-y-auto p-6 lg:px-10 lg:py-8">
+              <div className="mx-auto w-full max-w-7xl">
               {tab === 'overview' ? (
-                <div className="mx-auto max-w-2xl space-y-6">
+                <div className="space-y-6">
                   <div className="flex flex-wrap gap-6">
                     <div className="text-center">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -253,6 +282,25 @@ export function ServerSettingsDialog({
                       </div>
                     </div>
                   </div>
+                  {canManageServer ? (
+                    <div className="flex items-start justify-between gap-4 rounded-lg border border-white/10 bg-white/[0.02] p-4">
+                      <div className="min-w-0 flex-1">
+                        <Label htmlFor="require-pwd-change" className="text-sm font-medium text-fg">
+                          {t.serverRequirePasswordChange}
+                        </Label>
+                        <p className="mt-1 text-xs text-fg-subtle">{t.serverRequirePasswordChangeHint}</p>
+                      </div>
+                      <Switch
+                        id="require-pwd-change"
+                        checked={requirePasswordChange}
+                        disabled={pwdPolicyMut.isPending}
+                        onCheckedChange={(checked) => {
+                          setRequirePasswordChange(checked);
+                          pwdPolicyMut.mutate(checked);
+                        }}
+                      />
+                    </div>
+                  ) : null}
                   <Button type="button" disabled={saveMut.isPending} onClick={() => saveMut.mutate()}>
                     {t.save}
                   </Button>
@@ -266,12 +314,13 @@ export function ServerSettingsDialog({
               {tab === 'emojis' ? <ServerSettingsEmojisPanel serverId={server.id} /> : null}
               {tab === 'banned' ? <ServerSettingsBannedPanel serverId={server.id} /> : null}
               {tab === 'teams' ? <TeamsAdminPanel serverId={server.id} /> : null}
+              {tab === 'tickets' ? <ServerSettingsTicketsPanel serverId={server.id} /> : null}
               {tab === 'integrations' ? <ServerSettingsIntegrationsPanel serverId={server.id} /> : null}
 
               {tab === 'members' ? <ServerSettingsMembersPanel serverId={server.id} /> : null}
 
               {tab === 'invites' ? (
-                <div className="mx-auto max-w-4xl space-y-4">
+                <div className="space-y-4">
                   <Button type="button" size="sm" disabled={inviteMut.isPending} onClick={() => inviteMut.mutate()}>
                     {t.serverCreateInvite}
                   </Button>
@@ -315,6 +364,7 @@ export function ServerSettingsDialog({
                   {invites.length === 0 ? <p className="text-sm text-fg-subtle">{t.serverInvitesEmpty}</p> : null}
                 </div>
               ) : null}
+              </div>
             </div>
           </div>
         </Dialog.Content>

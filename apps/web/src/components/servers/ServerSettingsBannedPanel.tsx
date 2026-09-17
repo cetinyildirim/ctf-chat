@@ -32,7 +32,7 @@ export function ServerSettingsBannedPanel({ serverId }: { serverId: string }) {
   });
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="w-full space-y-4">
       <Input placeholder={t.serverMemberSearch} value={q} onChange={(e) => setQ(e.target.value)} />
       {isLoading ? <Loader2 className="mx-auto h-8 w-8 animate-spin text-accent-violet" /> : null}
       {!isLoading && banned.length === 0 ? (

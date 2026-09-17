@@ -115,6 +115,7 @@ function RegisterForm() {
         <div className="space-y-1.5">
           <Label htmlFor="teamCode">{t.authRegisterTeamCode}</Label>
           <Input id="teamCode" {...register('teamCode')} />
+          <p className="text-[11px] text-muted-fg">{t.authRegisterTeamCodeHint}</p>
         </div>
 
         <Button type="submit" variant="primary" size="lg" disabled={isSubmitting} className="w-full">

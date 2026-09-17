@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Request, RequestHandler } from 'express';
 import fs from 'node:fs/promises';
+import type { Prisma } from '@prisma/client';
 import { Permission, isStaff, schemas } from '@sydt/shared';
 import { MAX_MESSAGE_LENGTH } from '@sydt/shared';
 import { z } from 'zod';
@@ -12,7 +13,7 @@ import { messageLimiter } from '../../middleware/ratelimit.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
 import { serializeMessage, serializeUser } from '../serializers.js';
-import { loadChannel, assertCanAccessChannel } from './access.js';
+import { loadChannel, assertCanAccessChannel, userCanAccessChannel } from './access.js';
 import { channelMessageUpload, safeBasename, absolutePathForStoredAttachment, unlinkQuiet } from '../../lib/upload.js';
 import { isAllowedMessageUpload, verifyMessageUploadFile } from '../../lib/allowed-upload.js';
 import {
@@ -25,6 +26,7 @@ import {
 import { effectiveNotifyModes } from '../../lib/channel-notify-prefs.js';
 import { assertUserCanUsePlatform } from '../../lib/user-moderation.js';
 import { getUploadMaxMb } from '../../lib/platform-settings.js';
+import { assertChannelServerPermission } from '../../lib/server-permissions.js';
 
 const router: Router = Router({ mergeParams: true });
 
@@ -91,11 +93,32 @@ router.get(
 
       let candidateIds: string[] = [];
       if (channel.serverId) {
-        const members = await prisma.serverMember.findMany({
-          where: { serverId: channel.serverId, userId: { not: meId } },
-          select: { userId: true },
-        });
-        candidateIds = members.map((m) => m.userId);
+        const categoryTeamId = channel.category?.teamId ?? null;
+        const privateTeamId = categoryTeamId ?? (channel.isPrivate ? channel.teamId : null);
+        if (privateTeamId && !isStaff(req.user!.role)) {
+          // Same competition-team only (plus we already excluded self).
+          const mates = await prisma.serverTeamMember.findMany({
+            where: {
+              serverId: channel.serverId,
+              teamId: privateTeamId,
+              userId: { not: meId },
+            },
+            select: { userId: true },
+          });
+          candidateIds = mates.map((m) => m.userId);
+        } else {
+          const members = await prisma.serverMember.findMany({
+            where: { serverId: channel.serverId, userId: { not: meId }, bannedAt: null },
+            select: { userId: true },
+          });
+          candidateIds = members.map((m) => m.userId);
+          // Still ACL-filter staff-only / private edge cases.
+          const accessible: string[] = [];
+          for (const id of candidateIds) {
+            if (await userCanAccessChannel(channel, id)) accessible.push(id);
+          }
+          candidateIds = accessible;
+        }
       } else {
         const users = await prisma.user.findMany({
           where: { isBanned: false, id: { not: meId } },
@@ -183,6 +206,7 @@ router.post(
       await assertUserCanUsePlatform(req.user!.id);
       const channel = await loadChannel(channelId);
       await assertCanAccessChannel(channel, req.user!);
+      await assertChannelServerPermission(req.user!, channel, 'sendMessage');
       if (channel.isLocked && !isStaff(req.user!.role)) {
         throw Forbidden('Channel is locked');
       }
@@ -195,6 +219,7 @@ router.post(
       let replyToId: string | null;
 
       if (isMultipart) {
+        await assertChannelServerPermission(req.user!, channel, 'uploadFiles');
         const files = ((req as Request & { files?: Express.Multer.File[] }).files ??
           []) as Express.Multer.File[];
         const maxBytes = (await getUploadMaxMb()) * 1024 * 1024;
@@ -291,11 +316,15 @@ router.post(
         });
         const preview = content.slice(0, 140);
         const recipients = mentionedUsers.filter((u) => u.id !== req.user!.id).map((u) => u.id);
-        const modes =
-          recipients.length > 0
-            ? await effectiveNotifyModes(channelId, recipients)
-            : new Map<string, 'ALL' | 'MENTIONS_ONLY' | 'NONE' | 'MUTED'>();
+        const allowed: string[] = [];
         for (const uId of recipients) {
+          if (await userCanAccessChannel(channel, uId)) allowed.push(uId);
+        }
+        const modes =
+          allowed.length > 0
+            ? await effectiveNotifyModes(channelId, allowed)
+            : new Map<string, 'ALL' | 'MENTIONS_ONLY' | 'NONE' | 'MUTED'>();
+        for (const uId of allowed) {
           const eff = modes.get(uId) ?? 'ALL';
           if (eff === 'NONE' || eff === 'MUTED') continue;
           emitMention({
@@ -348,10 +377,12 @@ router.delete('/messages/:id', async (req, res, next) => {
   try {
     const id = req.params.id;
     if (!id) throw NotFound();
-    const { original } = await assertMessageChannelAccess(id, req.user!);
+    const { original, channel } = await assertMessageChannelAccess(id, req.user!);
     const isOwner = original.authorId === req.user!.id;
     const canDeleteAny = isStaff(req.user!.role);
     if (!isOwner && !canDeleteAny) throw Forbidden();
+    // Non-owner deletes are staff moderation (platform RBAC). Server manageMessages
+    // is enforced for member self-service tools via role UI, not this path.
     await prisma.message.update({
       where: { id },
       data: { deletedAt: new Date(), content: '' },
@@ -361,7 +392,7 @@ router.delete('/messages/:id', async (req, res, next) => {
         actorId: req.user?.id,
         action: 'message.delete',
         target: id,
-        meta: { channelId: original.channelId },
+        meta: { channelId: original.channelId, serverId: channel.serverId },
       });
     }
     emitMessageDelete(original.channelId, id);
@@ -379,7 +410,8 @@ router.post(
     try {
       const id = req.params.id;
       if (!id) throw NotFound();
-      await assertMessageChannelAccess(id, req.user!);
+      const { channel } = await assertMessageChannelAccess(id, req.user!);
+      await assertChannelServerPermission(req.user!, channel, 'useReactions');
       const data = req.body as ReturnType<typeof schemas.reactMessageSchema.parse>;
       const existing = await prisma.reaction.findUnique({
         where: {

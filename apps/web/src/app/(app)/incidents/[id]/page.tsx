@@ -85,7 +85,7 @@ export default function IncidentDetailPage() {
     onSuccess: (updated) => {
       toast.success(t.incidentUpdatedToast);
       qc.setQueryData(queryKeys.incident(id), updated);
-      void qc.invalidateQueries({ queryKey: queryKeys.incidents });
+      void qc.invalidateQueries({ queryKey: ['incidents'] });
     },
     onError: (err: unknown) => {
       toast.error(unwrapApiError(err).message ?? 'Error');

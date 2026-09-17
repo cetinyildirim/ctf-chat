@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useNotificationStore } from '@/store/notifications';
 import { requestBrowserPermission } from '@/lib/notifications/browser';
+import { playSoundFromUserGesture } from '@/lib/notifications/sound';
 import { toast } from 'sonner';
 import { useI18n } from '@/components/providers/LocaleProvider';
 import { cn } from '@/lib/utils';
@@ -70,7 +71,11 @@ export default function NotificationSettingsPage() {
             label={t.settingsSoundHeading}
             description={t.settingsSoundBody}
             pressed={soundEnabled}
-            onToggle={() => setSoundEnabled(!soundEnabled)}
+            onToggle={() => {
+              const next = !soundEnabled;
+              setSoundEnabled(next);
+              if (next) playSoundFromUserGesture('ticket');
+            }}
             onIcon={<Volume2 className="h-5 w-5" />}
             offIcon={<VolumeX className="h-5 w-5" />}
           />

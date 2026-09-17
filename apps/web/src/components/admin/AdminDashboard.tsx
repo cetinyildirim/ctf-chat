@@ -667,6 +667,7 @@ function SystemSection() {
       ) : null}
 
       <UploadMaxPanel initialMb={data.uploadMaxMb} />
+      <RegistrationServerPanel />
 
       <GlassPanel className="space-y-3 p-6">
         <h2 className="text-sm font-semibold text-fg">{t.adminSystemSecurity}</h2>
@@ -753,6 +754,70 @@ function UploadMaxPanel({ initialMb }: { initialMb: number }) {
           {t.adminUploadMaxSave}
         </Button>
       </div>
+    </GlassPanel>
+  );
+}
+
+function RegistrationServerPanel() {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const { data: settings, isLoading } = useQuery({
+    queryKey: ['admin', 'registration-settings'],
+    queryFn: adminApi.getRegistrationSettings,
+  });
+  const { data: servers = [] } = useQuery({
+    queryKey: [...queryKeys.servers, 'manageable'] as const,
+    queryFn: serversApi.listManageable,
+  });
+
+  const saveMut = useMutation({
+    mutationFn: (defaultRegistrationServerId: string | null) =>
+      adminApi.setRegistrationSettings({ defaultRegistrationServerId }),
+    onSuccess: () => {
+      toast.success(t.adminRegistrationSaved);
+      void qc.invalidateQueries({ queryKey: ['admin', 'registration-settings'] });
+    },
+    onError: (err) => toast.error(unwrapApiError(err).message),
+  });
+
+  const selected = settings?.defaultRegistrationServerId ?? '';
+
+  return (
+    <GlassPanel className="space-y-3 p-6">
+      <div className="space-y-1">
+        <h2 className="text-sm font-semibold text-fg">{t.adminRegistrationTitle}</h2>
+        <p className="text-[13px] text-fg-subtle">{t.adminRegistrationLead}</p>
+      </div>
+      {isLoading ? (
+        <div className="text-sm text-fg-subtle">{t.loading}</div>
+      ) : (
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="min-w-[16rem] flex-1 space-y-1 text-xs">
+            <span className="text-muted-fg">{t.adminRegistrationServer}</span>
+            <select
+              className="flex h-10 w-full rounded-md border border-white/10 bg-bg-deep px-3 text-sm text-fg outline-none focus:border-accent-cyan/50"
+              value={selected}
+              disabled={saveMut.isPending}
+              onChange={(e) => {
+                const value = e.target.value || null;
+                saveMut.mutate(value);
+              }}
+            >
+              <option value="">{t.adminRegistrationAuto}</option>
+              {servers.map((server) => (
+                <option key={server.id} value={server.id}>
+                  {server.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+      {settings?.effectiveServerName ? (
+        <p className="text-[12px] text-muted-fg">
+          {t.adminRegistrationEffective.replace('{{name}}', settings.effectiveServerName)}
+        </p>
+      ) : null}
     </GlassPanel>
   );
 }

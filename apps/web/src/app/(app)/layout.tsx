@@ -14,6 +14,8 @@ import { usePlatformBranding } from '@/components/providers/PlatformBrandingProv
 import { SurveyGate } from '@/components/surveys/SurveyGate';
 import { UserProfileProvider } from '@/components/users/UserProfileProvider';
 import { ServerBootstrap } from '@/components/servers/ServerBootstrap';
+import { PasswordChangeGate } from '@/components/auth/PasswordChangeGate';
+import { cn } from '@/lib/utils';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const ready = useAuthStore((s) => s.ready);
@@ -29,7 +31,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const hideSidebar = pathname?.startsWith('/scoreboard');
 
   return (
-    <div className="flex h-svh min-h-0 w-screen flex-col overflow-hidden bg-bg lg:grid lg:h-screen lg:min-h-0 lg:w-screen lg:grid-cols-[auto_minmax(0,16rem)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
+    <div
+      className={cn(
+        'flex h-svh min-h-0 w-screen flex-col overflow-hidden bg-bg lg:grid lg:h-screen lg:min-h-0 lg:w-screen lg:grid-rows-[minmax(0,1fr)]',
+        hideSidebar
+          ? 'lg:grid-cols-[auto_minmax(0,1fr)]'
+          : 'lg:grid-cols-[auto_minmax(0,16rem)_minmax(0,1fr)]',
+      )}
+    >
       {!hideSidebar ? (
         <header className="flex min-h-[3rem] items-center gap-2 border-b border-white/5 bg-bg-deep/50 px-3 backdrop-blur-md lg:hidden">
           <Button
@@ -55,6 +64,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
       <CommandPalette />
       <SurveyGate />
+      <PasswordChangeGate />
       <UserProfileProvider />
       <ServerBootstrap />
     </div>

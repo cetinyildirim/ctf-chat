@@ -14,3 +14,13 @@ export function validate<S extends ZodTypeAny>(schema: S, source: Source = 'body
     next();
   };
 }
+
+/**
+ * Same validation, for handlers that must normalize the payload themselves
+ * (multipart requests, where every field arrives as a string).
+ */
+export function parseOrThrow<S extends ZodTypeAny>(schema: S, value: unknown): z.infer<S> {
+  const result = schema.safeParse(value);
+  if (!result.success) throw result.error;
+  return result.data;
+}

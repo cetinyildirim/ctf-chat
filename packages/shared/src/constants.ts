@@ -17,22 +17,101 @@ export const ChannelType = {
 
 export type ChannelType = (typeof ChannelType)[keyof typeof ChannelType];
 
+/**
+ * CTF ticket lifecycle:
+ * OPEN -> IN_PROGRESS -> WAITING_FOR_COMPETITOR -> RESOLVED -> CLOSED, with
+ * REOPENED available when the competitor rejects the resolution.
+ * Assignment is tracked separately from status (see Ticket.assignedTo).
+ */
 export const TicketStatus = {
   OPEN: 'OPEN',
-  CLAIMED: 'CLAIMED',
   IN_PROGRESS: 'IN_PROGRESS',
+  WAITING_FOR_COMPETITOR: 'WAITING_FOR_COMPETITOR',
   RESOLVED: 'RESOLVED',
   CLOSED: 'CLOSED',
+  REOPENED: 'REOPENED',
 } as const;
 export type TicketStatus = (typeof TicketStatus)[keyof typeof TicketStatus];
 
-export const TicketSeverity = {
+export const TICKET_STATUSES = Object.values(TicketStatus) as TicketStatus[];
+
+/** Statuses that still require organizer attention. */
+export const TICKET_ACTIVE_STATUSES: TicketStatus[] = [
+  TicketStatus.OPEN,
+  TicketStatus.IN_PROGRESS,
+  TicketStatus.WAITING_FOR_COMPETITOR,
+  TicketStatus.REOPENED,
+];
+
+export const TicketPriority = {
   LOW: 'LOW',
   MEDIUM: 'MEDIUM',
   HIGH: 'HIGH',
   CRITICAL: 'CRITICAL',
 } as const;
-export type TicketSeverity = (typeof TicketSeverity)[keyof typeof TicketSeverity];
+export type TicketPriority = (typeof TicketPriority)[keyof typeof TicketPriority];
+
+export const TICKET_PRIORITIES = Object.values(TicketPriority) as TicketPriority[];
+
+/** Retained alias: the DB column was named `severity` before M1. */
+export const TicketSeverity = TicketPriority;
+export type TicketSeverity = TicketPriority;
+
+export const TicketRelationKind = {
+  RELATED: 'RELATED',
+  DUPLICATE: 'DUPLICATE',
+  PARENT: 'PARENT',
+  CHILD: 'CHILD',
+} as const;
+export type TicketRelationKind = (typeof TicketRelationKind)[keyof typeof TicketRelationKind];
+
+export const CompetitionStatus = {
+  UPCOMING: 'UPCOMING',
+  LIVE: 'LIVE',
+  PAUSED: 'PAUSED',
+  FINISHED: 'FINISHED',
+} as const;
+export type CompetitionStatus = (typeof CompetitionStatus)[keyof typeof CompetitionStatus];
+
+/** Who may open tickets in the current competition state. */
+export const TicketPolicy = {
+  OPEN: 'OPEN',
+  ORGANIZER_ONLY: 'ORGANIZER_ONLY',
+  CLOSED: 'CLOSED',
+} as const;
+export type TicketPolicy = (typeof TicketPolicy)[keyof typeof TicketPolicy];
+
+/** Seeded per competition; admins may rename, reorder or deactivate them. */
+export const DEFAULT_TICKET_CATEGORIES: ReadonlyArray<{
+  key: string;
+  name: string;
+  requiresChallenge?: boolean;
+}> = [
+  { key: 'CHALLENGE_ISSUE', name: 'Challenge Issue', requiresChallenge: true },
+  { key: 'CHALLENGE_CLARIFICATION', name: 'Challenge Clarification', requiresChallenge: true },
+  { key: 'TECHNICAL_ISSUE', name: 'Technical Issue' },
+  { key: 'INFRASTRUCTURE', name: 'Infrastructure' },
+  { key: 'FLAG_SUBMISSION', name: 'Flag Submission Issue' },
+  { key: 'SCORE_ISSUE', name: 'Score Issue' },
+  { key: 'ACCOUNT_TEAM', name: 'Account / Team' },
+  { key: 'COMPETITION', name: 'Competition' },
+  { key: 'OTHER', name: 'Other' },
+];
+
+export const NotificationKind = {
+  TICKET_CREATED: 'TICKET_CREATED',
+  TICKET_REPLY: 'TICKET_REPLY',
+  TICKET_STATUS: 'TICKET_STATUS',
+  TICKET_ASSIGNED: 'TICKET_ASSIGNED',
+  TICKET_RESOLVED: 'TICKET_RESOLVED',
+  TICKET_REOPENED: 'TICKET_REOPENED',
+  TICKET_CRITICAL: 'TICKET_CRITICAL',
+  TICKET_MULTI_TEAM: 'TICKET_MULTI_TEAM',
+  ANNOUNCEMENT: 'ANNOUNCEMENT',
+  MENTION: 'MENTION',
+  SYSTEM: 'SYSTEM',
+} as const;
+export type NotificationKind = (typeof NotificationKind)[keyof typeof NotificationKind];
 
 export const IncidentSeverity = {
   INFO: 'INFO',
@@ -89,15 +168,41 @@ export const PRESENCE_OFFLINE_MS = 60_000;
 
 export const TICKET_STATUS_LABELS: Record<TicketStatus, string> = {
   OPEN: 'Open',
-  CLAIMED: 'Claimed',
   IN_PROGRESS: 'In progress',
+  WAITING_FOR_COMPETITOR: 'Waiting for competitor',
   RESOLVED: 'Resolved',
   CLOSED: 'Closed',
+  REOPENED: 'Reopened',
 };
 
-export const SEVERITY_ORDER: Record<TicketSeverity, number> = {
+export const SEVERITY_ORDER: Record<TicketPriority, number> = {
   LOW: 0,
   MEDIUM: 1,
   HIGH: 2,
   CRITICAL: 3,
 };
+
+export const PRIORITY_ORDER = SEVERITY_ORDER;
+
+export const TICKET_PAGE_SIZE = 25;
+export const TICKET_PAGE_SIZE_MAX = 100;
+/** Ticket attachments: tighter than message uploads, checked per request. */
+export const TICKET_ATTACHMENT_MAX_COUNT = 5;
+
+/**
+ * Allowed status transitions. Organizers move tickets forward; competitors may
+ * only reopen a resolved ticket (enforced separately by permission).
+ */
+export const TICKET_STATUS_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
+  OPEN: ['IN_PROGRESS', 'WAITING_FOR_COMPETITOR', 'RESOLVED', 'CLOSED'],
+  IN_PROGRESS: ['OPEN', 'WAITING_FOR_COMPETITOR', 'RESOLVED', 'CLOSED'],
+  WAITING_FOR_COMPETITOR: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+  RESOLVED: ['CLOSED', 'REOPENED', 'IN_PROGRESS'],
+  CLOSED: ['REOPENED'],
+  REOPENED: ['IN_PROGRESS', 'WAITING_FOR_COMPETITOR', 'RESOLVED', 'CLOSED'],
+};
+
+export function canTransitionTicketStatus(from: TicketStatus, to: TicketStatus): boolean {
+  if (from === to) return true;
+  return (TICKET_STATUS_TRANSITIONS[from] ?? []).includes(to);
+}

@@ -1,13 +1,14 @@
 import { Router } from 'express';
-import { Permission, schemas } from '@sydt/shared';
+import { Permission, schemas, isAdmin } from '@sydt/shared';
 import { prisma } from '../../prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/rbac.js';
 import { validate } from '../../middleware/validate.js';
-import { NotFound } from '../../lib/http-error.js';
+import { BadRequest, NotFound } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
 import { serializeIncident } from '../serializers.js';
 import { emitIncidentCreated, emitIncidentUpdated } from '../../realtime/broadcasters.js';
+import { requireServerMember } from '../../lib/server-membership.js';
 
 const router: Router = Router();
 
@@ -18,9 +19,16 @@ const include = {
 
 router.use(requireAuth, requirePermission(Permission.INCIDENT_VIEW));
 
-router.get('/', async (_req, res, next) => {
+router.get('/', async (req, res, next) => {
   try {
+    const serverId = typeof req.query.serverId === 'string' ? req.query.serverId : undefined;
+    if (serverId && !isAdmin(req.user!.role)) {
+      await requireServerMember(req.user!.id, serverId);
+    }
     const incidents = await prisma.incident.findMany({
+      where: serverId
+        ? { OR: [{ serverId }, { serverId: null }] }
+        : undefined,
       include,
       orderBy: { createdAt: 'desc' },
       take: 100,
@@ -50,6 +58,28 @@ router.post(
   async (req, res, next) => {
     try {
       const data = req.body as ReturnType<typeof schemas.createIncidentSchema.parse>;
+
+      let serverId = data.serverId ?? null;
+      let channelId = data.channelId ?? null;
+
+      if (channelId) {
+        const channel = await prisma.channel.findUnique({
+          where: { id: channelId },
+          select: { id: true, serverId: true },
+        });
+        if (!channel) throw BadRequest('Channel not found');
+        channelId = channel.id;
+        if (!serverId) serverId = channel.serverId;
+      }
+
+      if (serverId) {
+        const server = await prisma.chatServer.findUnique({ where: { id: serverId }, select: { id: true } });
+        if (!server) throw BadRequest('Server not found');
+        if (!isAdmin(req.user!.role)) {
+          await requireServerMember(req.user!.id, serverId);
+        }
+      }
+
       const incident = await prisma.incident.create({
         data: {
           title: data.title,
@@ -57,6 +87,8 @@ router.post(
           severity: data.severity,
           assignedToId: data.assignedToId ?? null,
           openedById: req.user!.id,
+          serverId,
+          channelId,
         },
         include,
       });

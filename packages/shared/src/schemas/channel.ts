@@ -15,6 +15,14 @@ export const createChannelSchema = z.object({
 });
 export type CreateChannelInput = z.infer<typeof createChannelSchema>;
 
+/** Team members create a private channel under their team category. */
+export const createTeamChannelSchema = z.object({
+  categoryId: z.string().cuid(),
+  name: z.string().trim().min(2).max(48),
+  topic: z.string().max(200).optional(),
+});
+export type CreateTeamChannelInput = z.infer<typeof createTeamChannelSchema>;
+
 export const updateChannelSchema = z.object({
   name: z.string().min(2).max(48).optional(),
   topic: z.string().max(200).optional().nullable(),

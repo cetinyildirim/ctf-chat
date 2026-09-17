@@ -90,7 +90,7 @@ export function ServerSettingsMembersPanel({ serverId }: { serverId: string }) {
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="w-full space-y-4">
       <Input placeholder={t.serverMemberSearch} value={memberQ} onChange={(e) => setMemberQ(e.target.value)} />
       <p className="text-xs uppercase text-muted-fg">{t.serverMemberCount.replace('{{count}}', String(members.length))}</p>
       {isLoading ? <Loader2 className="mx-auto h-8 w-8 animate-spin" /> : null}

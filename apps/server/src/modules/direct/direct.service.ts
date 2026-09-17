@@ -1,9 +1,8 @@
 import crypto from 'node:crypto';
 import { prisma } from '../../prisma.js';
-import type { Role } from '@sydt/shared';
-import { canUsersDirectMessage } from '../../lib/direct-message-rules.js';
+import { canUsersDirectMessageOnSharedTeam } from '../../lib/direct-message-rules.js';
 import { BadRequest } from '../../lib/http-error.js';
-import { emitChannelsRefresh, emitChannelsRefreshToUsers } from '../../realtime/broadcasters.js';
+import { emitChannelsRefreshToUsers } from '../../realtime/broadcasters.js';
 
 function dmSlugForPair(userIdA: string, userIdB: string): string {
   const [lo, hi] = [userIdA, userIdB].sort();
@@ -25,9 +24,9 @@ export async function ensureDirectChannel(actorId: string, peerId: string) {
   const [actor, peer] = await Promise.all([loadUserLite(actorId), loadUserLite(peerId)]);
   if (!actor || !peer) throw BadRequest('User not found');
 
-  const aTeam = { role: actor.role as Role, teamId: actor.teamId };
-  const bTeam = { role: peer.role as Role, teamId: peer.teamId };
-  if (!canUsersDirectMessage(aTeam, bTeam)) throw BadRequest('Direct messages are limited to your team and staff');
+  if (!(await canUsersDirectMessageOnSharedTeam(actorId, peerId))) {
+    throw BadRequest('Direct messages are limited to your team and staff');
+  }
 
   const candidates = await prisma.channel.findMany({
     where: {

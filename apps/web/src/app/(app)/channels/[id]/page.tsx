@@ -59,7 +59,7 @@ export default function ChannelPage() {
     socket.on('connect', join);
     return () => {
       socket.off('connect', join);
-      socket.emit('channel:leave', channelId);
+      // Keep room membership so unread indicators still receive message:new elsewhere.
     };
   }, [channelId]);
 

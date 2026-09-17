@@ -14,6 +14,8 @@ export const createIncidentSchema = z.object({
   description: z.string().min(10).max(4000),
   severity: severityEnum.default('MEDIUM'),
   assignedToId: z.string().cuid().optional().nullable(),
+  serverId: z.string().cuid().optional().nullable(),
+  channelId: z.string().cuid().optional().nullable(),
 });
 export type CreateIncidentInput = z.infer<typeof createIncidentSchema>;
 
@@ -23,4 +25,5 @@ export const updateIncidentSchema = z.object({
   severity: severityEnum.optional(),
   status: statusEnum.optional(),
   assignedToId: z.string().cuid().optional().nullable(),
+  channelId: z.string().cuid().optional().nullable(),
 });

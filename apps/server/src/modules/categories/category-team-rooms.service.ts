@@ -3,6 +3,11 @@ import { ChannelType } from '@sydt/shared';
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
+const GENERAL_CHANNEL_NAME = 'General';
+
+const migratedServers = new Map<string, number>();
+const MIGRATE_TTL_MS = 60_000;
+
 function slugifySegment(name: string): string {
   return name
     .toLowerCase()
@@ -12,104 +17,130 @@ function slugifySegment(name: string): string {
 }
 
 /**
- * Ensures each team has a private TEAM_PRIVATE channel under the category.
- * Visible to that team's members plus staff via existing isPrivate rules. Idempotent.
+ * Ensures a team has its own private category (named after the team) with a
+ * default General channel. Idempotent.
  */
-export async function provisionTeamRoomsForCategory(db: DbClient, category: { id: string; name: string; staffOnly: boolean }) {
-  if (category.staffOnly) return;
-
-  const catServerId =
-    (
-      await db.category.findUnique({
-        where: { id: category.id },
-        select: { serverId: true },
-      })
-    )?.serverId ?? null;
-  const teams = await db.team.findMany({
-    where: catServerId ? { serverId: catServerId } : undefined,
-    select: { id: true, name: true },
-    orderBy: { name: 'asc' },
-  });
-  let nextPos =
-    (
-      await db.channel.findFirst({
-        where: { categoryId: category.id },
-        orderBy: { position: 'desc' },
-        select: { position: true },
-      })
-    )?.position ?? 0;
-  nextPos += 1;
-
-  for (const team of teams) {
-    const existing = await db.channel.findFirst({
-      where: { categoryId: category.id, teamId: team.id, type: ChannelType.TEAM_PRIVATE },
-    });
-    if (existing) continue;
-
-    const slugBase = `${slugifySegment(team.name)}-${team.id.slice(-6)}-${category.id.slice(-4)}`;
-    const slug = `${slugBase}-${Math.random().toString(36).slice(2, 6)}`;
-
-    await db.channel.create({
-      data: {
-        name: team.name,
-        slug,
-        type: ChannelType.TEAM_PRIVATE,
-        topic: `${category.name} · ${team.name}`,
-        categoryId: category.id,
-        isPrivate: true,
-        teamId: team.id,
-        position: nextPos,
-      },
-    });
-    nextPos += 1;
-  }
-}
-
-/** After creating a single team via admin: add TEAM_PRIVATE slots for all non-staff categories on the same server. */
-export async function provisionTeamRoomsForTeamInCategories(
+export async function ensureTeamWorkspace(
   db: DbClient,
   team: { id: string; name: string; serverId: string },
 ) {
-  const cats = await db.category.findMany({
-    where: { staffOnly: false, serverId: team.serverId },
+  let category = await db.category.findFirst({
+    where: { serverId: team.serverId, teamId: team.id },
   });
-  for (const category of cats) {
-    let nextPos =
+
+  if (!category) {
+    const maxPos =
       (
-        await db.channel.findFirst({
-          where: { categoryId: category.id },
+        await db.category.findFirst({
+          where: { serverId: team.serverId },
           orderBy: { position: 'desc' },
           select: { position: true },
         })
       )?.position ?? 0;
-    nextPos += 1;
 
-    const existing = await db.channel.findFirst({
-      where: { categoryId: category.id, teamId: team.id, type: ChannelType.TEAM_PRIVATE },
-    });
-    if (existing) continue;
-
-    const slugBase = `${slugifySegment(team.name)}-${team.id.slice(-6)}-${category.id.slice(-4)}`;
-    const slug = `${slugBase}-${Math.random().toString(36).slice(2, 6)}`;
-
-    await db.channel.create({
+    category = await db.category.create({
       data: {
         name: team.name,
-        slug,
-        type: ChannelType.TEAM_PRIVATE,
-        topic: `${category.name} · ${team.name}`,
-        categoryId: category.id,
-        isPrivate: true,
+        serverId: team.serverId,
         teamId: team.id,
-        position: nextPos,
+        staffOnly: false,
+        position: maxPos + 1,
       },
     });
+  } else if (category.name !== team.name) {
+    category = await db.category.update({
+      where: { id: category.id },
+      data: { name: team.name },
+    });
   }
+
+  const existingGeneral = await db.channel.findFirst({
+    where: {
+      categoryId: category.id,
+      teamId: team.id,
+      type: ChannelType.TEAM_PRIVATE,
+      name: GENERAL_CHANNEL_NAME,
+    },
+  });
+  if (existingGeneral) return { category, channel: existingGeneral };
+
+  const anyInCategory = await db.channel.findFirst({
+    where: { categoryId: category.id, teamId: team.id, type: ChannelType.TEAM_PRIVATE },
+  });
+  if (anyInCategory) return { category, channel: anyInCategory };
+
+  const slug = `${slugifySegment(team.name)}-general-${team.id.slice(-6)}-${Math.random().toString(36).slice(2, 6)}`;
+  const channel = await db.channel.create({
+    data: {
+      name: GENERAL_CHANNEL_NAME,
+      slug,
+      type: ChannelType.TEAM_PRIVATE,
+      topic: `${team.name} · ${GENERAL_CHANNEL_NAME}`,
+      categoryId: category.id,
+      serverId: team.serverId,
+      isPrivate: true,
+      teamId: team.id,
+      position: 0,
+    },
+  });
+
+  return { category, channel };
 }
 
-export async function provisionTeamRoomsForNonStaffCategories(prisma: PrismaClient) {
-  const cats = await prisma.category.findMany({ where: { staffOnly: false } });
-  for (const cat of cats) {
-    await provisionTeamRoomsForCategory(prisma, cat);
+/** @deprecated Prefer ensureTeamWorkspace — kept for call-site compatibility. */
+export async function provisionTeamRoomsForTeamInCategories(
+  db: DbClient,
+  team: { id: string; name: string; serverId: string },
+) {
+  await ensureTeamWorkspace(db, team);
+}
+
+/**
+ * No-op for challenge/public categories: team rooms live under the team
+ * category, not under every competition category.
+ */
+export async function provisionTeamRoomsForCategory(
+  _db: DbClient,
+  _category: { id: string; name: string; staffOnly: boolean },
+) {
+  /* intentionally empty */
+}
+
+/** Remove legacy per-category team rooms, then ensure each team has a workspace. */
+export async function provisionTeamRoomsForNonStaffCategories(
+  prisma: PrismaClient,
+  serverId?: string,
+) {
+  if (serverId) {
+    const last = migratedServers.get(serverId) ?? 0;
+    if (Date.now() - last < MIGRATE_TTL_MS) return;
+    migratedServers.set(serverId, Date.now());
+  }
+
+  const legacy = await prisma.channel.findMany({
+    where: {
+      type: ChannelType.TEAM_PRIVATE,
+      ...(serverId ? { serverId } : {}),
+    },
+    select: { id: true, teamId: true, category: { select: { teamId: true } } },
+  });
+  const toDelete = legacy
+    .filter((ch) => !ch.category?.teamId || ch.category.teamId !== ch.teamId)
+    .map((ch) => ch.id);
+  if (toDelete.length) {
+    await prisma.channel.deleteMany({ where: { id: { in: toDelete } } });
+  }
+
+  const teams = await prisma.team.findMany({
+    where: serverId ? { serverId } : { serverId: { not: null } },
+    select: { id: true, name: true, serverId: true },
+  });
+  for (const team of teams) {
+    if (!team.serverId) continue;
+    await ensureTeamWorkspace(prisma, {
+      id: team.id,
+      name: team.name,
+      serverId: team.serverId,
+    });
   }
 }

@@ -18,6 +18,11 @@ export const patchServerIntegrationsSchema = z.object({
   ctfdAccessToken: z.string().max(256).optional().nullable(),
 });
 
+export const testCtfdConnectionSchema = z.object({
+  ctfdBaseUrl: z.string().url().max(500).optional(),
+  ctfdAccessToken: z.string().max(256).optional().nullable(),
+});
+
 export const createServerWebhookSchema = z.object({
   label: z.string().min(2).max(64),
   url: z.string().url().max(500),

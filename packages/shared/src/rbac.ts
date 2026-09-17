@@ -54,10 +54,17 @@ export const Permission = {
   // Tickets
   TICKET_CREATE: 'TICKET_CREATE',
   TICKET_VIEW_OWN: 'TICKET_VIEW_OWN',
+  /** Captain-level: every ticket of the own team, including teammates'. */
+  TICKET_VIEW_TEAM: 'TICKET_VIEW_TEAM',
   TICKET_VIEW_ALL: 'TICKET_VIEW_ALL',
   TICKET_CLAIM: 'TICKET_CLAIM',
+  TICKET_ASSIGN: 'TICKET_ASSIGN',
   TICKET_RESOLVE: 'TICKET_RESOLVE',
   TICKET_INTERNAL_NOTE: 'TICKET_INTERNAL_NOTE',
+  TICKET_BULK: 'TICKET_BULK',
+  /** Manage categories, tags and competition ticket settings. */
+  TICKET_MANAGE_META: 'TICKET_MANAGE_META',
+  TICKET_ANNOUNCE: 'TICKET_ANNOUNCE',
 
   // Users / Moderation
   USER_MUTE: 'USER_MUTE',
@@ -96,6 +103,10 @@ const observer: Permission[] = [
 const spectator: Permission[] = [
   ...observer,
   Permission.MESSAGE_REACT,
+  // Open registration lands as SPECTATOR; they still need to open and track
+  // their own support tickets for infra / score problems.
+  Permission.TICKET_CREATE,
+  Permission.TICKET_VIEW_OWN,
 ];
 
 const teamMember: Permission[] = [
@@ -105,6 +116,9 @@ const teamMember: Permission[] = [
   Permission.MESSAGE_DELETE_OWN,
   Permission.TICKET_CREATE,
   Permission.TICKET_VIEW_OWN,
+  // Competitors see their own team's tickets; the team is always resolved from
+  // the competition membership, never from the request.
+  Permission.TICKET_VIEW_TEAM,
   Permission.CHALLENGE_REQUEST_HINT,
 ];
 
@@ -122,8 +136,10 @@ const moderator: Permission[] = [
   Permission.USER_VIEW_ALL,
   Permission.TICKET_VIEW_ALL,
   Permission.TICKET_CLAIM,
+  Permission.TICKET_ASSIGN,
   Permission.TICKET_RESOLVE,
   Permission.TICKET_INTERNAL_NOTE,
+  Permission.TICKET_BULK,
   Permission.INCIDENT_VIEW,
   Permission.STATS_VIEW,
 ];
@@ -142,6 +158,8 @@ const compAdmin: Permission[] = [
   Permission.CHANNEL_REORDER,
   Permission.ANNOUNCEMENT_CREATE,
   Permission.ANNOUNCEMENT_SCHEDULE,
+  Permission.TICKET_MANAGE_META,
+  Permission.TICKET_ANNOUNCE,
   Permission.INCIDENT_CREATE,
   Permission.INCIDENT_MANAGE,
   Permission.USER_BAN,

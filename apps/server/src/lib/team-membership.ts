@@ -1,7 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { Role, isStaff } from '@sydt/shared';
 import { permissionRoleOf } from './user-role.js';
-import { revokeSessionsIfAuthProfileChanged } from './revoke-sessions.js';
 
 type Db = PrismaClient | import('@prisma/client').Prisma.TransactionClient;
 
@@ -30,6 +29,7 @@ export async function assignUserToServerTeam(
   });
 
   const staff = isStaff(permissionRoleOf(user));
+  // User.teamId is a legacy display cache for single-competition UX; ACL must use ServerTeamMember.
   const userUpdate: { teamId: string; role?: Role; platformRole?: Role | null } = {
     teamId: args.teamId,
   };
@@ -42,13 +42,10 @@ export async function assignUserToServerTeam(
     userUpdate.role = args.asCaptain ? Role.TEAM_CAPTAIN : Role.TEAM_MEMBER;
   }
 
+  // Do not revoke refresh tokens here. Self-service join/leave (SPECTATOR ↔ TEAM_MEMBER)
+  // must keep the current browser session; HTTP auth already reloads role from DB.
+  // Admin routes that need a forced re-login call revokeAllRefreshTokens explicitly.
   await db.user.update({ where: { id: args.userId }, data: userUpdate });
-
-  const after = await db.user.findUniqueOrThrow({
-    where: { id: args.userId },
-    select: { role: true, platformRole: true, isBanned: true },
-  });
-  await revokeSessionsIfAuthProfileChanged(args.userId, user, after);
 
   if (args.asCaptain) {
     await db.team.update({ where: { id: args.teamId }, data: { captainId: args.userId } });
@@ -89,11 +86,6 @@ export async function removeUserFromServerTeam(db: Db, userId: string, serverId:
           role: other ? Role.TEAM_MEMBER : Role.SPECTATOR,
         },
       });
-      const after = await db.user.findUniqueOrThrow({
-        where: { id: userId },
-        select: { role: true, platformRole: true, isBanned: true },
-      });
-      await revokeSessionsIfAuthProfileChanged(userId, user, after);
     }
   }
 }

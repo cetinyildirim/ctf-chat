@@ -16,11 +16,17 @@ import { emitChannelsRefresh } from '../../realtime/broadcasters.js';
 import crypto from 'node:crypto';
 import integrationsRouter from './server-integrations.router.js';
 import serverRolesRouter from './server-roles.router.js';
+import serverTicketsRouter from './server-tickets.router.js';
+import serverTicketAdminRouter from './server-ticket-admin.router.js';
+import serverTicketStatsRouter from './server-ticket-stats.router.js';
 import { ensureServerDefaultRole } from '../../lib/ensure-server-default-role.js';
+import { ensureCompetitionDefaults } from '../../lib/ticket-defaults.js';
 import { assignDefaultRoleToMember } from '../../lib/assign-default-server-role.js';
-import { requireServerMember } from '../../lib/server-membership.js';
+import { requireServerMember, serverMemberJoinFields } from '../../lib/server-membership.js';
 import { assertServerPermission } from '../../lib/server-permissions.js';
 import { assertPlatformAdminForServer } from '../../lib/server-admin-scope.js';
+import { ctfdScoreboardUrl, fetchCtfdScoreboard, isCtfdConfigured } from '../../lib/ctfd-client.js';
+import { getServerScoreboard, getServerSolveTimeline } from '../scoreboard/scoreboard.service.js';
 
 const router: Router = Router();
 router.use(requireAuth);
@@ -45,6 +51,7 @@ function serializeServer(s: {
   iconUrl: string | null;
   bannerUrl: string | null;
   position: number;
+  requirePasswordChangeOnJoin?: boolean;
 }) {
   return {
     id: s.id,
@@ -54,6 +61,7 @@ function serializeServer(s: {
     iconUrl: s.iconUrl,
     bannerUrl: s.bannerUrl,
     position: s.position,
+    requirePasswordChangeOnJoin: s.requirePasswordChangeOnJoin ?? false,
   };
 }
 
@@ -107,9 +115,10 @@ router.post(
       });
 
       await prisma.serverMember.create({
-        data: { userId: req.user!.id, serverId: server.id },
+        data: { userId: req.user!.id, serverId: server.id, ...(await serverMemberJoinFields(server.id)) },
       });
       await assignDefaultRoleToMember(req.user!.id, server.id);
+      await ensureCompetitionDefaults(server.id);
 
       await audit({
         actorId: req.user!.id,
@@ -157,6 +166,9 @@ router.patch(
         data: {
           ...(body.name !== undefined ? { name: body.name.trim() } : {}),
           ...(body.description !== undefined ? { description: body.description?.trim() ?? null } : {}),
+          ...(body.requirePasswordChangeOnJoin !== undefined
+            ? { requirePasswordChangeOnJoin: body.requirePasswordChangeOnJoin }
+            : {}),
         },
       });
       await audit({ actorId: req.user!.id, action: 'server.update', target: id, meta: body });
@@ -620,6 +632,165 @@ router.get('/:id/me/team', validate(idSchema, 'params'), async (req, res, next) 
   }
 });
 
+/** Public team directory for members (no invite codes). Used on Takımım join empty-state. */
+router.get('/:id/teams', validate(idSchema, 'params'), async (req, res, next) => {
+  try {
+    const serverId = req.params.id!;
+    await requireServerMember(req.user!.id, serverId);
+    const teams = await prisma.team.findMany({
+      where: { serverId },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        color: true,
+        logoUrl: true,
+        tagline: true,
+        _count: { select: { serverMembers: true } },
+      },
+    });
+    res.json({
+      teams: teams.map((t) => ({
+        id: t.id,
+        name: t.name,
+        color: t.color,
+        logoUrl: t.logoUrl,
+        tagline: t.tagline,
+        memberCount: t._count.serverMembers,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/scoreboard/ctfd', validate(idSchema, 'params'), async (req, res, next) => {
+  try {
+    const serverId = req.params.id!;
+    await requireServerMember(req.user!.id, serverId);
+
+    const server = await prisma.chatServer.findUnique({
+      where: { id: serverId },
+      select: { ctfdBaseUrl: true, ctfdAccessToken: true },
+    });
+    if (!server) throw NotFound();
+
+    if (!isCtfdConfigured(server)) {
+      res.json({
+        configured: false,
+        needsToken: !!(server.ctfdBaseUrl?.trim() && !server.ctfdAccessToken?.trim()),
+        scoreboardUrl: null,
+        generatedAt: new Date().toISOString(),
+        entries: [],
+        stats: null,
+      });
+      return;
+    }
+
+    const rows = await fetchCtfdScoreboard(server.ctfdBaseUrl!, server.ctfdAccessToken);
+
+    if (!rows) {
+      res.json({
+        configured: true,
+        scoreboardUrl: ctfdScoreboardUrl(server.ctfdBaseUrl!),
+        generatedAt: new Date().toISOString(),
+        entries: [],
+        stats: null,
+      });
+      return;
+    }
+
+    const localTeams = await prisma.team.findMany({
+      where: { serverId },
+      select: { id: true, name: true, color: true, logoUrl: true, ctfdTeamId: true },
+    });
+    const byCtfdId = new Map(localTeams.filter((t) => t.ctfdTeamId != null).map((t) => [t.ctfdTeamId!, t]));
+    const byName = new Map(localTeams.map((t) => [t.name.trim().toLowerCase(), t]));
+
+    const entries = rows.map((row) => {
+      const local =
+        (row.ctfdTeamId != null ? byCtfdId.get(row.ctfdTeamId) : undefined) ??
+        byName.get(row.name.trim().toLowerCase()) ??
+        null;
+      return {
+        place: row.place,
+        ctfdTeamId: row.ctfdTeamId,
+        name: row.name,
+        score: row.score,
+        solves: row.solves,
+        localTeam: local
+          ? { id: local.id, name: local.name, color: local.color, logoUrl: local.logoUrl }
+          : null,
+      };
+    });
+
+    res.json({
+      configured: true,
+      scoreboardUrl: ctfdScoreboardUrl(server.ctfdBaseUrl!),
+      generatedAt: new Date().toISOString(),
+      entries,
+      stats: null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/scoreboard/ctfd/stats', validate(idSchema, 'params'), async (_req, res) => {
+  res.json({ stats: null, generatedAt: new Date().toISOString() });
+});
+
+router.get('/:id/scoreboard', validate(idSchema, 'params'), async (req, res, next) => {
+  try {
+    const serverId = req.params.id!;
+    await requireServerMember(req.user!.id, serverId);
+
+    const server = await prisma.chatServer.findUnique({
+      where: { id: serverId },
+      select: { ctfdBaseUrl: true, ctfdAccessToken: true },
+    });
+    if (!server) throw NotFound();
+
+    if (!isCtfdConfigured(server)) {
+      res.json({
+        generatedAt: new Date().toISOString(),
+        entries: [],
+        totalChallenges: 0,
+        totalTeams: 0,
+      });
+      return;
+    }
+
+    const snap = await getServerScoreboard(serverId);
+    res.json(snap);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/scoreboard/timeline', validate(idSchema, 'params'), async (req, res, next) => {
+  try {
+    const serverId = req.params.id!;
+    await requireServerMember(req.user!.id, serverId);
+
+    const server = await prisma.chatServer.findUnique({
+      where: { id: serverId },
+      select: { ctfdBaseUrl: true, ctfdAccessToken: true },
+    });
+    if (!server) throw NotFound();
+
+    if (!isCtfdConfigured(server)) {
+      res.json({ points: [] });
+      return;
+    }
+
+    const points = await getServerSolveTimeline(serverId, 500);
+    res.json({ points });
+  } catch (err) {
+    next(err);
+  }
+});
+
 const pinMessageInclude = {
   author: { include: { team: true } },
   attachments: true,
@@ -692,5 +863,8 @@ router.get('/:id/pins-by-category', validate(idSchema, 'params'), async (req, re
 
 router.use('/:id', serverRolesRouter);
 router.use('/:id', integrationsRouter);
+router.use('/:id', serverTicketsRouter);
+router.use('/:id', serverTicketAdminRouter);
+router.use('/:id', serverTicketStatsRouter);
 
 export default router;
