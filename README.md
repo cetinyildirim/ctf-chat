@@ -1,4 +1,4 @@
-# SYDT — CTF Operations Chat Platform
+# CTF Operations Chat Platform
 
 GitHub repository name: **CTF Chat** (`ctf-chat`). The application title inside the product stays SYDT.
 
