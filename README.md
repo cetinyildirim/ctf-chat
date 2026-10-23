@@ -1,6 +1,6 @@
 # CTF Operations Chat Platform
 
-GitHub repository name: **CTF Chat** (`ctf-chat`). The application title inside the product stays SYDT.
+GitHub repository name: **CTF Chat** (`ctf-chat`). 
 
 A production-grade realtime communication platform built for cyber-security CTF operations. Discord-style channels, granular RBAC, live scoreboard, support tickets, incident management, and a polished cyber/neon dark UI — all wired to a real Socket.IO realtime layer with seeded demo data.
 
