@@ -201,7 +201,7 @@ Argon2 passwords, short-lived access JWT and rotating refresh JWT in httpOnly co
 
 Argon2 parola, httpOnly çerezlerde kısa ömürlü erişim JWT’si ve dönen yenileme JWT’si, çift gönderimli CSRF, zorunlu parola değişimi ve pasif hesaplar. Kayıt, davet bağlantısı ve kullanım kuralları aynı akıştadır. Arayüz Türkçe ve İngilizcedir.
 
-![Sign in / Giriş](docs/screenshots/01-login.png)
+![Sign in / Giriş](docs/screenshots/01-login2.png)
 
 ### Servers, channels and realtime chat / Sunucular, kanallar ve sohbet
 
