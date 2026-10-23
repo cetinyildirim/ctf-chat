@@ -55,7 +55,7 @@ export function MemberUserSuggest({
         disabled={disabled}
       />
       {showList && suggestions.length > 0 ? (
-        <ul className="absolute left-0 right-0 top-full z-[100] mt-1 max-h-56 overflow-y-auto rounded-lg border border-white/10 bg-[#1e1f22] py-1 shadow-2xl ring-1 ring-black/40">
+        <ul className="absolute left-0 right-0 top-full z-[100] mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-bg py-1 shadow-2xl ring-1 ring-black/40">
           {suggestions.map((u) => (
             <li key={u.id}>
               <button
@@ -78,7 +78,7 @@ export function MemberUserSuggest({
           ))}
         </ul>
       ) : showList ? (
-        <p className="absolute left-0 top-full z-[100] mt-1 rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-muted-fg shadow-xl">
+        <p className="absolute left-0 top-full z-[100] mt-1 rounded-md border border-border bg-bg px-3 py-2 text-xs text-muted-fg shadow-xl">
           {t.friendsSuggestEmpty}
         </p>
       ) : null}

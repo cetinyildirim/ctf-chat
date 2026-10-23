@@ -23,6 +23,8 @@ export function makeQueryClient(): QueryClient {
 export const queryKeys = {
   me: ['auth', 'me'] as const,
   channels: (serverId?: string) => ['channels', serverId ?? ''] as const,
+  /** Includes empty categories — for server settings, not the sidebar rail. */
+  channelsSettings: (serverId: string) => ['channels', serverId, 'settings'] as const,
   channelsAll: ['channels'] as const,
   servers: ['servers'] as const,
   server: (id: string) => ['servers', id] as const,
@@ -61,6 +63,7 @@ export const queryKeys = {
   audit: ['admin', 'audit'] as const,
   auditActions: ['admin', 'audit', 'actions'] as const,
   adminSystem: ['admin', 'system'] as const,
+  adminBackups: ['admin', 'backups'] as const,
   adminTeams: (serverId: string) => ['admin', 'teams', serverId] as const,
   serverIntegrations: (id: string) => ['servers', id, 'integrations'] as const,
   serverWebhooks: (id: string) => ['servers', id, 'webhooks'] as const,
@@ -74,6 +77,7 @@ export const queryKeys = {
   serverRoles: (id: string) => ['servers', id, 'roles'] as const,
   memberRoles: (serverId: string, userId: string) => ['servers', serverId, 'members', userId, 'roles'] as const,
   serverMemberRoleGroups: (serverId: string) => ['servers', serverId, 'members', 'by-role'] as const,
+  serverMyPermissions: (serverId: string) => ['servers', serverId, 'my-permissions'] as const,
   serverPinsByCategory: (serverId: string) => ['servers', serverId, 'pins-by-category'] as const,
   channelMentionSuggest: (channelId: string, q: string) => ['channels', channelId, 'mention-suggest', q] as const,
   platformPages: ['platform-pages'] as const,
@@ -83,7 +87,10 @@ export const queryKeys = {
   adminSurveys: ['admin', 'surveys'] as const,
   adminSurveyStats: (id: string) => ['admin', 'surveys', id, 'stats'] as const,
   surveysPending: ['surveys', 'pending'] as const,
+  announcementsPendingAck: ['announcements', 'pending-ack'] as const,
   friends: ['friends'] as const,
+  /** Nested under `friends` so every existing DM read/new invalidation refreshes the inbox too. */
+  directConversations: ['friends', 'direct-conversations'] as const,
   userProfile: (id: string) => ['users', id, 'profile'] as const,
   adminReports: (status?: string) => ['admin', 'reports', status ?? 'all'] as const,
 };

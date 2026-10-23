@@ -25,8 +25,17 @@ model User {
   bio          String?
   lastSeenAt   DateTime?
   isBanned     Boolean  @default(false)
+  /// Null while banned = indefinite; the ban lifts automatically once this passes.
+  bannedUntil  DateTime?
+  banReason    String?
   mutedUntil   DateTime?
   mutedSince   DateTime?
+  muteReason   String?
+  /// Set by an admin password reset; cleared once the user picks a new password.
+  mustChangePassword Boolean @default(false)
+  /// Deactivated accounts cannot sign in; history is kept.
+  disabledAt     DateTime?
+  disabledReason String?
   preferredLocale String @default("tr")
   preferredTheme  String @default("dark")
   notifyDefault   String @default("ALL")
@@ -67,6 +76,7 @@ model User {
   auditLogs     AuditLog[]
   authoredChallenges Challenge[] @relation("ChallengeAuthor")
   surveyResponses SurveyResponse[]
+  announcementAcks AnnouncementAck[]
   surveysCreated  Survey[] @relation("SurveyCreator")
   broadcastsAuthored AdminBroadcast[] @relation("BroadcastAuthor")
   reportsMade      UserReport[] @relation("ReportsMade")
@@ -183,9 +193,11 @@ model Friendship {
 }
 
 model ChannelDmParticipant {
-  channelId String
-  userId    String
-  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId  String
+  userId     String
+  /// Null = never opened; peer messages after this count as unread.
+  lastReadAt DateTime?
+  channel    Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([channelId, userId])
@@ -215,6 +227,8 @@ model ChatServer {
   themeAccent  String?
   emailNotifyEnabled Boolean @default(false)
   requirePasswordChangeOnJoin Boolean @default(false)
+  /// New registrations (and admin-created users) also join this server.
+  autoJoinNewUsers   Boolean @default(false)
   emailReplyTo       String?
   ctfdBaseUrl        String?
   ctfdAccessToken    String?
@@ -771,12 +785,28 @@ model Announcement {
   expiresAt   DateTime?
   /// Set when the announcement was generated from a ticket (spec: ticket -> announcement).
   sourceTicketId String?
+  /// Recipients cannot use the platform until they acknowledge it.
+  requireAck  Boolean  @default(false)
   createdAt   DateTime @default(now())
+
+  acks AnnouncementAck[]
 
   @@index([createdAt])
   @@index([serverId, publishedAt])
   @@index([scheduledFor])
   @@index([expiresAt])
+}
+
+model AnnouncementAck {
+  announcementId String
+  userId         String
+  ackedAt        DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([announcementId, userId])
+  @@index([userId])
 }
 
 model AppConfig {
@@ -789,6 +819,28 @@ model AppConfig {
   /// Competition new open-registrations join when they have no team invite.
   defaultRegistrationServerId String?
   updatedAt                   DateTime @updatedAt
+}
+
+/// Scheduled backup settings (single row) plus the outcome of the last run.
+model BackupConfig {
+  id             String    @id @default("default")
+  enabled        Boolean   @default(false)
+  /// EVERY_6H | EVERY_12H | DAILY | WEEKLY
+  frequency      String    @default("DAILY")
+  /// Server local time, 0-23.
+  hour           Int       @default(3)
+  /// 0 = Sunday … 6 = Saturday (WEEKLY only).
+  weekday        Int       @default(0)
+  /// Automatic backups kept; older ones are pruned. Manual backups are never pruned.
+  retention      Int       @default(7)
+  includeUploads Boolean   @default(true)
+  lastAutoRunAt  DateTime?
+  lastRunAt      DateTime?
+  lastStatus     String?
+  lastError      String?
+  lastDurationMs Int?
+  lastSizeBytes  BigInt?
+  updatedAt      DateTime  @updatedAt
 }
 
 model AdminBroadcast {

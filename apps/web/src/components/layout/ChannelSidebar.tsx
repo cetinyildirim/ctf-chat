@@ -4,7 +4,17 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Lock, ChevronRight, Plus } from 'lucide-react';
+import {
+  Lock,
+  ChevronRight,
+  Plus,
+  Star,
+  LayoutList,
+  ChevronsUpDown,
+  ChevronsDownUp,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from 'lucide-react';
 import { ChannelNotifyMode, type Channel } from '@sydt/shared';
 import { ChannelNotifyContextMenu } from '@/components/channels/ChannelNotifyContextMenu';
 import { channelsApi, serversApi } from '@/lib/api/endpoints';
@@ -27,6 +37,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { unwrapApiError } from '@/lib/api/axios';
 import { toast } from 'sonner';
+import { useChannelFavoritesStore, useUserFavorites, type FavoriteKind } from '@/store/channel-favorites';
+import { CHANNEL_SIDEBAR_MAX, CHANNEL_SIDEBAR_MIN, useSidebarLayoutStore } from '@/store/sidebar-layout';
+
+const FAVORITE_CHANNELS_GROUP = 'favorite-channels';
 
 export function ChannelSidebar() {
   const pathname = usePathname() ?? '/';
@@ -38,6 +52,9 @@ export function ChannelSidebar() {
   const setChannelsDrawerOpen = useUIStore((s) => s.setChannelsDrawerOpen);
   const queryClient = useQueryClient();
   const activeServerId = useServerStore((s) => s.activeServerId);
+  const sidebarWidth = useSidebarLayoutStore((s) => s.width);
+  const sidebarCollapsed = useSidebarLayoutStore((s) => s.collapsed);
+  const setSidebarCollapsed = useSidebarLayoutStore((s) => s.setCollapsed);
 
   const notifyMut = useMutation({
     mutationFn: ({ channelId, mode }: { channelId: string; mode: ChannelNotifyMode }) =>
@@ -110,8 +127,38 @@ export function ChannelSidebar() {
     setCollapsedIds(new Set());
   }, [activeServerId]);
 
+  const favorites = useUserFavorites(user?.id);
+  const toggleFavoriteStore = useChannelFavoritesStore((s) => s.toggle);
+  const toggleFavorite = (kind: FavoriteKind, id: string) => {
+    if (user) toggleFavoriteStore(user.id, kind, id);
+  };
+  const favoriteCategorySet = React.useMemo(() => new Set(favorites.categories), [favorites.categories]);
+  const favoriteChannelSet = React.useMemo(() => new Set(favorites.channels), [favorites.channels]);
+  const [sidebarTab, setSidebarTab] = React.useState<'all' | 'favorites'>('all');
+
+  const favoriteCategories = React.useMemo(
+    () => orderedCategories.filter((c) => favoriteCategorySet.has(c.id)),
+    [orderedCategories, favoriteCategorySet],
+  );
+
+  const favoriteLooseChannels = React.useMemo(() => {
+    if (!data) return [] as Channel[];
+    const catPos = new Map(orderedCategories.map((c, i) => [c.id, i]));
+    return data.channels
+      .filter((ch) => favoriteChannelSet.has(ch.id) && !(ch.categoryId && favoriteCategorySet.has(ch.categoryId)))
+      .sort(
+        (a, b) =>
+          (catPos.get(a.categoryId ?? '') ?? Number.MAX_SAFE_INTEGER) -
+            (catPos.get(b.categoryId ?? '') ?? Number.MAX_SAFE_INTEGER) ||
+          a.position - b.position ||
+          a.name.localeCompare(b.name),
+      );
+  }, [data, orderedCategories, favoriteChannelSet, favoriteCategorySet]);
+
+  const favoritesCount = favoriteCategories.length + favoriteLooseChannels.length;
+
   const expandAllCategories = () => setCollapsedIds(new Set());
-  const collapseAllCategories = () => setCollapsedIds(new Set(visibleCategoryIds));
+  const collapseAllCategories = () => setCollapsedIds(new Set([...visibleCategoryIds, FAVORITE_CHANNELS_GROUP]));
   const toggleCategory = (categoryId: string) => {
     setCollapsedIds((prev) => {
       const next = new Set(prev);
@@ -136,17 +183,79 @@ export function ChannelSidebar() {
     if (activeChannelId) markRead(activeChannelId);
   }, [activeChannelId, markRead]);
 
+  const renderChannel = (channel: Channel) => {
+    const meta = channel.categoryId ? categoryMeta.get(channel.categoryId) : null;
+    return (
+      <ChannelRow
+        key={channel.id}
+        channel={channel}
+        categoryLabel={meta?.name ?? t.uncategorized}
+        active={activeChannelId === channel.id}
+        unread={!!unreadByChannel[channel.id]}
+        favorite={favoriteChannelSet.has(channel.id)}
+        onToggleFavorite={() => toggleFavorite('channel', channel.id)}
+        notifyBusy={notifyMut.isPending}
+        setNotify={(mode) =>
+          notifyMut.mutate({ channelId: channel.id, mode }, { onSuccess: () => setChannelsDrawerOpen(false) })
+        }
+        onPick={() => setChannelsDrawerOpen(false)}
+      />
+    );
+  };
+
+  const renderCategory = (cat: Category) => {
+    const list = channelsByCategory.get(cat.id) ?? [];
+    if (list.length === 0 && !cat.teamId) return null;
+    const canAddTeamChannel = !!cat.teamId && !!myTeamId && cat.teamId === myTeamId;
+    return (
+      <CategoryGroup
+        key={cat.id}
+        name={cat.name}
+        logoUrl={cat.logoUrl}
+        categoryId={cat.id}
+        open={!collapsedIds.has(cat.id)}
+        onToggle={() => toggleCategory(cat.id)}
+        unread={list.some((ch) => !!unreadByChannel[ch.id])}
+        favorite={favoriteCategorySet.has(cat.id)}
+        onToggleFavorite={() => toggleFavorite('category', cat.id)}
+        footer={
+          canAddTeamChannel ? (
+            <TeamChannelComposer
+              busy={createTeamChannelMut.isPending}
+              onCreate={(name) => createTeamChannelMut.mutate({ categoryId: cat.id, name })}
+            />
+          ) : null
+        }
+      >
+        {list.map((channel) => renderChannel(channel))}
+      </CategoryGroup>
+    );
+  };
+
   const navBody = (
     <>
-      <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-4 py-3">
-        <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-fg">{branding.workspaceLabel}</div>
-          <div className="font-semibold text-fg">{branding.workspaceTitle}</div>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/5 py-3 pl-4 pr-2">
+        <div className="min-w-0">
+          <div className="truncate font-mono text-[10px] uppercase tracking-[0.2em] text-muted-fg">{branding.workspaceLabel}</div>
+          <div className="truncate font-semibold text-fg">{branding.workspaceTitle}</div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10px] uppercase text-fg-subtle">
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="mr-1 rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10px] uppercase text-fg-subtle">
             {t.liveBadge}
           </span>
+          <SidebarIconButton label={t.channelsExpandAll} onClick={expandAllCategories}>
+            <ChevronsUpDown className="h-4 w-4" />
+          </SidebarIconButton>
+          <SidebarIconButton label={t.channelsCollapseAll} onClick={collapseAllCategories}>
+            <ChevronsDownUp className="h-4 w-4" />
+          </SidebarIconButton>
+          <SidebarIconButton
+            label={t.channelsSidebarHide}
+            onClick={() => setSidebarCollapsed(true)}
+            className="hidden lg:grid"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </SidebarIconButton>
           <button
             type="button"
             className="grid h-8 w-8 place-items-center rounded-md border border-white/10 bg-white/5 lg:hidden"
@@ -157,24 +266,26 @@ export function ChannelSidebar() {
         </div>
       </div>
 
-      {!isLoading && visibleCategoryIds.length > 0 ? (
-        <div className="flex shrink-0 items-center justify-center border-b border-white/5 px-3 py-2">
-          <div className="inline-flex items-center gap-0.5 rounded-md border border-white/12 bg-white/[0.04] p-0.5">
-            <button
-              type="button"
-              onClick={expandAllCategories}
-              className="rounded px-2.5 py-1 text-[12.5px] font-medium text-fg-subtle transition-colors hover:bg-white/10 hover:text-fg"
-            >
-              {t.channelsExpandAll}
-            </button>
-            <span className="h-3.5 w-px shrink-0 bg-white/15" aria-hidden />
-            <button
-              type="button"
-              onClick={collapseAllCategories}
-              className="rounded px-2.5 py-1 text-[12.5px] font-medium text-fg-subtle transition-colors hover:bg-white/10 hover:text-fg"
-            >
-              {t.channelsCollapseAll}
-            </button>
+      {!isLoading ? (
+        <div className="shrink-0 border-b border-white/5 px-2 py-2">
+          <div
+            role="tablist"
+            aria-label={t.channelsTabsLabel}
+            className="grid grid-cols-2 gap-0.5 rounded-lg border border-white/10 bg-white/[0.04] p-0.5"
+          >
+            <SidebarTab active={sidebarTab === 'all'} onClick={() => setSidebarTab('all')}>
+              <LayoutList className="h-4 w-4 shrink-0" />
+              <span className="truncate">{t.channelsTabAll}</span>
+            </SidebarTab>
+            <SidebarTab active={sidebarTab === 'favorites'} onClick={() => setSidebarTab('favorites')}>
+              <Star className="h-4 w-4 shrink-0" />
+              <span className="truncate">{t.channelsTabFavorites}</span>
+              {favoritesCount > 0 ? (
+                <span className="rounded-full bg-accent-amber/20 px-1.5 text-[10px] font-bold leading-4 text-accent-amber">
+                  {favoritesCount}
+                </span>
+              ) : null}
+            </SidebarTab>
           </div>
         </div>
       ) : null}
@@ -189,81 +300,47 @@ export function ChannelSidebar() {
             </div>
           ) : null}
 
-          {orderedCategories.map((cat) => {
-            const list = channelsByCategory.get(cat.id) ?? [];
-            if (list.length === 0 && !cat.teamId) return null;
-            const canAddTeamChannel = !!cat.teamId && !!myTeamId && cat.teamId === myTeamId;
-            const categoryUnread = list.some((ch) => !!unreadByChannel[ch.id]);
-            return (
-              <CategoryGroup
-                key={cat.id}
-                name={cat.name}
-                logoUrl={cat.logoUrl}
-                categoryId={cat.id}
-                open={!collapsedIds.has(cat.id)}
-                onToggle={() => toggleCategory(cat.id)}
-                unread={categoryUnread}
-                footer={
-                  canAddTeamChannel ? (
-                    <TeamChannelComposer
-                      busy={createTeamChannelMut.isPending}
-                      onCreate={(name) => createTeamChannelMut.mutate({ categoryId: cat.id, name })}
-                    />
-                  ) : null
-                }
-              >
-                {list.map((channel) => {
-                  const meta = channel.categoryId ? categoryMeta.get(channel.categoryId) : null;
-                  const categoryLabel = meta?.name ?? t.uncategorized;
-                  return (
-                    <ChannelRow
-                      key={channel.id}
-                      channel={channel}
-                      categoryLabel={categoryLabel}
-                      active={activeChannelId === channel.id}
-                      unread={!!unreadByChannel[channel.id]}
-                      notifyBusy={notifyMut.isPending}
-                      setNotify={(mode) =>
-                        notifyMut.mutate(
-                          { channelId: channel.id, mode },
-                          { onSuccess: () => setChannelsDrawerOpen(false) },
-                        )
-                      }
-                      onPick={() => setChannelsDrawerOpen(false)}
-                    />
-                  );
-                })}
-              </CategoryGroup>
-            );
-          })}
+          {!isLoading && sidebarTab === 'all' ? (
+            <>
+              {orderedCategories.map((cat) => renderCategory(cat))}
+              {(channelsByCategory.get(null) ?? []).length > 0 ? (
+                <CategoryGroup
+                  name={t.uncategorized}
+                  logoUrl={null}
+                  categoryId="uncategorized"
+                  open={!collapsedIds.has('uncategorized')}
+                  onToggle={() => toggleCategory('uncategorized')}
+                  unread={channelsByCategory.get(null)!.some((ch) => !!unreadByChannel[ch.id])}
+                >
+                  {channelsByCategory.get(null)!.map((channel) => renderChannel(channel))}
+                </CategoryGroup>
+              ) : null}
+            </>
+          ) : null}
 
-          {channelsByCategory.get(null) && channelsByCategory.get(null)!.length > 0 ? (
-            <CategoryGroup
-              name={t.uncategorized}
-              logoUrl={null}
-              categoryId="uncategorized"
-              open={!collapsedIds.has('uncategorized')}
-              onToggle={() => toggleCategory('uncategorized')}
-              unread={channelsByCategory.get(null)!.some((ch) => !!unreadByChannel[ch.id])}
-            >
-              {channelsByCategory.get(null)!.map((channel) => (
-                <ChannelRow
-                  key={channel.id}
-                  channel={channel}
-                  categoryLabel={t.uncategorized}
-                  active={activeChannelId === channel.id}
-                  unread={!!unreadByChannel[channel.id]}
-                  notifyBusy={notifyMut.isPending}
-                  setNotify={(mode) =>
-                    notifyMut.mutate(
-                      { channelId: channel.id, mode },
-                      { onSuccess: () => setChannelsDrawerOpen(false) },
-                    )
-                  }
-                  onPick={() => setChannelsDrawerOpen(false)}
-                />
-              ))}
-            </CategoryGroup>
+          {!isLoading && sidebarTab === 'favorites' ? (
+            favoritesCount === 0 ? (
+              <div className="mx-1 rounded-lg border border-dashed border-white/15 px-3 py-6 text-center">
+                <Star className="mx-auto mb-2 h-5 w-5 text-accent-amber" />
+                <p className="text-[13px] leading-relaxed text-fg-subtle">{t.channelsFavoritesEmpty}</p>
+              </div>
+            ) : (
+              <>
+                {favoriteLooseChannels.length > 0 ? (
+                  <CategoryGroup
+                    name={t.channelsFavoriteChannels}
+                    icon={<Star className="h-4 w-4 fill-current text-accent-amber" />}
+                    categoryId={FAVORITE_CHANNELS_GROUP}
+                    open={!collapsedIds.has(FAVORITE_CHANNELS_GROUP)}
+                    onToggle={() => toggleCategory(FAVORITE_CHANNELS_GROUP)}
+                    unread={favoriteLooseChannels.some((ch) => !!unreadByChannel[ch.id])}
+                  >
+                    {favoriteLooseChannels.map((channel) => renderChannel(channel))}
+                  </CategoryGroup>
+                ) : null}
+                {favoriteCategories.map((cat) => renderCategory(cat))}
+              </>
+            )
           ) : null}
         </nav>
       </ScrollArea>
@@ -272,65 +349,247 @@ export function ChannelSidebar() {
     </>
   );
 
+  const hasUnread = Object.keys(unreadByChannel).length > 0;
+
   return (
-    <div className="relative h-full min-h-0 w-0 shrink-0 overflow-hidden lg:w-64">
+    <div
+      className={cn(
+        'relative h-full min-h-0 w-0 shrink-0 overflow-hidden',
+        sidebarCollapsed ? 'lg:w-11' : 'lg:w-[var(--channel-sidebar-w)]',
+      )}
+      style={{ '--channel-sidebar-w': `${sidebarWidth}px` } as React.CSSProperties}
+    >
       {channelsDrawerOpen ? (
         <button
           type="button"
           className="fixed inset-0 z-40 bg-black/55 lg:hidden"
-          aria-label="Close sidebar"
+          aria-label={t.sidebarClose}
           onClick={() => setChannelsDrawerOpen(false)}
         />
+      ) : null}
+      {sidebarCollapsed ? (
+        <div className="hidden h-full flex-col items-center gap-2 border-r border-white/5 bg-bg-deep/95 py-3 lg:flex">
+          <SidebarIconButton label={t.channelsSidebarShow} onClick={() => setSidebarCollapsed(false)} className="relative">
+            <PanelLeftOpen className="h-4 w-4" />
+            {hasUnread ? (
+              <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-accent-cyan ring-2 ring-bg-deep" />
+            ) : null}
+          </SidebarIconButton>
+        </div>
       ) : null}
       <aside
         className={cn(
           'flex h-full max-h-svh min-h-0 w-[min(20rem,calc(100vw-3rem))] shrink-0 flex-col overflow-hidden border-r border-white/5 bg-bg-deep/95',
-          'fixed inset-y-0 left-0 z-50 transition-transform lg:static lg:z-0 lg:max-h-full lg:w-64 lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 transition-transform lg:static lg:z-0 lg:max-h-full lg:w-[var(--channel-sidebar-w)] lg:translate-x-0',
           channelsDrawerOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+          sidebarCollapsed && 'lg:hidden',
         )}
       >
         {navBody}
+        <SidebarResizeHandle />
       </aside>
     </div>
+  );
+}
+
+function SidebarResizeHandle() {
+  const { t } = useI18n();
+  const width = useSidebarLayoutStore((s) => s.width);
+  const setWidth = useSidebarLayoutStore((s) => s.setWidth);
+  const resetWidth = useSidebarLayoutStore((s) => s.resetWidth);
+  const [dragging, setDragging] = React.useState(false);
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = width;
+    setDragging(true);
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = (ev: PointerEvent) => setWidth(startWidth + ev.clientX - startX);
+    const onUp = () => {
+      setDragging(false);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowLeft') setWidth(width - 16);
+    else if (e.key === 'ArrowRight') setWidth(width + 16);
+    else return;
+    e.preventDefault();
+  };
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={t.channelsSidebarResize}
+      aria-valuemin={CHANNEL_SIDEBAR_MIN}
+      aria-valuemax={CHANNEL_SIDEBAR_MAX}
+      aria-valuenow={width}
+      tabIndex={0}
+      title={t.channelsSidebarResize}
+      onPointerDown={onPointerDown}
+      onDoubleClick={resetWidth}
+      onKeyDown={onKeyDown}
+      className="group/resize absolute inset-y-0 right-0 z-10 hidden w-2 cursor-col-resize lg:block"
+    >
+      <span
+        className={cn(
+          'absolute inset-y-0 right-0 w-0.5 transition-colors',
+          dragging ? 'bg-accent-cyan' : 'bg-transparent group-hover/resize:bg-accent-cyan/60 group-focus-visible/resize:bg-accent-cyan/60',
+        )}
+      />
+    </div>
+  );
+}
+
+function SidebarIconButton({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={cn(
+        'grid h-7 w-7 shrink-0 place-items-center rounded-md text-fg-subtle transition-colors hover:bg-white/10 hover:text-fg',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SidebarTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        'flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-semibold transition-colors',
+        active
+          ? 'bg-accent-cyan/15 text-accent-cyan shadow-[inset_0_0_0_1px_hsl(var(--accent-cyan)/0.35)]'
+          : 'text-fg-subtle hover:bg-white/10 hover:text-fg',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FavoriteToggle({
+  favorite,
+  onToggle,
+  className,
+}: {
+  favorite: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  const { t } = useI18n();
+  const label = favorite ? t.channelsFavoriteRemove : t.channelsFavoriteAdd;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onToggle();
+      }}
+      title={label}
+      aria-label={label}
+      aria-pressed={favorite}
+      className={cn(
+        'grid h-7 w-7 shrink-0 place-items-center rounded-md transition-[opacity,colors] hover:bg-white/10 focus-visible:opacity-100',
+        favorite ? 'text-accent-amber opacity-100' : 'text-muted-fg opacity-0 hover:text-accent-amber group-hover/fav:opacity-100',
+        className,
+      )}
+    >
+      <Star className={cn('h-3.5 w-3.5', favorite && 'fill-current')} />
+    </button>
   );
 }
 
 function CategoryGroup({
   name,
   logoUrl,
+  icon,
   categoryId,
   open,
   onToggle,
   children,
   footer,
   unread = false,
+  favorite,
+  onToggleFavorite,
 }: {
   name: string;
   logoUrl?: string | null;
+  icon?: React.ReactNode;
   categoryId: string;
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
   unread?: boolean;
+  favorite?: boolean;
+  onToggleFavorite?: () => void;
 }) {
   const badge = categoryHeaderBadgeDataUrl(name, categoryId);
   return (
     <div className="space-y-1">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className={cn(
-          'group flex w-full items-center gap-2 px-2 text-[13px] uppercase tracking-[0.12em] hover:text-fg',
-          unread ? 'font-bold text-white' : 'font-semibold text-muted-fg',
-        )}
-      >
-        <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', open ? 'rotate-90' : '')} />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={logoUrl ?? badge} alt="" className="h-8 w-8 shrink-0 rounded-lg object-cover" />
-        <span className="min-w-0 truncate">{name}</span>
-      </button>
+      <div className="group/fav flex items-center gap-1 pr-1">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          title={name}
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-2 px-2 text-[13px] uppercase tracking-[0.06em] hover:text-fg',
+            unread ? 'font-bold text-fg' : 'font-semibold text-muted-fg',
+          )}
+        >
+          <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', open ? 'rotate-90' : '')} />
+          {icon ? (
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-accent-amber/12">{icon}</span>
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl ?? badge} alt="" className="h-8 w-8 shrink-0 rounded-lg object-cover" />
+          )}
+          <span className="min-w-0 truncate">{name}</span>
+        </button>
+        {onToggleFavorite ? <FavoriteToggle favorite={!!favorite} onToggle={onToggleFavorite} /> : null}
+      </div>
       {open ? (
         <div className="space-y-0.5">
           {children}
@@ -411,6 +670,8 @@ function ChannelRow({
   categoryLabel,
   active,
   unread,
+  favorite,
+  onToggleFavorite,
   notifyBusy,
   setNotify,
   onPick,
@@ -419,6 +680,8 @@ function ChannelRow({
   categoryLabel: string;
   active: boolean;
   unread: boolean;
+  favorite: boolean;
+  onToggleFavorite: () => void;
   notifyBusy: boolean;
   setNotify: (m: ChannelNotifyMode) => void;
   onPick: () => void;
@@ -430,31 +693,39 @@ function ChannelRow({
 
   return (
     <ChannelNotifyContextMenu notifyBusy={notifyBusy} onSetNotify={setNotify}>
-      <Link
-        href={`/channels/${channel.id}`}
-        onClick={onPick}
-        className={cn(
-          'group flex items-center gap-2 rounded-md px-2 py-1.5 text-[15px] transition-colors',
-          active
-            ? 'bg-accent-cyan/10 text-white shadow-[inset_2px_0_0_0_rgba(34,211,238,0.7)]'
-            : unread
-              ? 'font-bold text-white hover:bg-white/5'
-              : 'font-medium text-fg-subtle hover:bg-white/5 hover:text-fg',
-          channel.isLocked && 'opacity-70',
-        )}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt="" className="h-8 w-8 shrink-0 rounded-lg object-cover" />
-        <span className={cn('truncate', unread || active ? 'font-bold' : 'font-medium')}>{channel.name}</span>
-        <span className="ml-auto flex items-center gap-1">
-          {channel.isPrivate ? <Lock className={cn('h-3.5 w-3.5', unread ? 'text-white/70' : 'text-muted-fg')} /> : null}
-          {channel.isLocked ? (
-            <span className="rounded bg-accent-rose/15 px-1 py-0.5 text-[9px] uppercase text-accent-rose">
-              {t.channelLockedBadge}
-            </span>
-          ) : null}
-        </span>
-      </Link>
+      <div className="group/fav relative">
+        <Link
+          href={`/channels/${channel.id}`}
+          onClick={onPick}
+          title={channel.name}
+          className={cn(
+            'group flex items-center gap-2 rounded-md py-1.5 pl-2 pr-9 text-[15px] transition-colors',
+            active
+              ? 'bg-accent-cyan/12 text-fg shadow-[inset_3px_0_0_0_hsl(var(--accent-cyan))]'
+              : unread
+                ? 'font-bold text-fg hover:bg-white/5'
+                : 'font-medium text-fg-subtle hover:bg-white/5 hover:text-fg',
+            channel.isLocked && 'opacity-70',
+          )}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt="" className="h-8 w-8 shrink-0 rounded-lg object-cover" />
+          <span className={cn('truncate', unread || active ? 'font-bold' : 'font-medium')}>{channel.name}</span>
+          <span className="ml-auto flex items-center gap-1">
+            {channel.isPrivate ? <Lock className={cn('h-3.5 w-3.5', unread ? 'text-fg/70' : 'text-muted-fg')} /> : null}
+            {channel.isLocked ? (
+              <span className="rounded bg-accent-rose/15 px-1 py-0.5 text-[9px] uppercase text-accent-rose">
+                {t.channelLockedBadge}
+              </span>
+            ) : null}
+          </span>
+        </Link>
+        <FavoriteToggle
+          favorite={favorite}
+          onToggle={onToggleFavorite}
+          className="absolute right-1 top-1/2 -translate-y-1/2"
+        />
+      </div>
     </ChannelNotifyContextMenu>
   );
 }

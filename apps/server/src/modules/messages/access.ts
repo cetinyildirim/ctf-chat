@@ -4,6 +4,7 @@ import { prisma } from '../../prisma.js';
 import { NotFound, Forbidden } from '../../lib/http-error.js';
 import { getUserTeamOnServer } from '../../lib/team-membership.js';
 import { permissionRoleOf } from '../../lib/user-role.js';
+import { getEffectiveServerPermissions } from '../../lib/server-permissions.js';
 
 export async function loadChannel(channelId: string) {
   const channel = await prisma.channel.findUnique({
@@ -26,6 +27,24 @@ export async function resolveChannelTeamId(
   if (!channel.serverId) return fallbackTeamId;
   const team = await getUserTeamOnServer(prisma, userId, channel.serverId);
   return team?.id ?? null;
+}
+
+/** Server-role grants that open channels otherwise reserved for platform staff. */
+export type ChannelVisibilityGrants = { staff: boolean; team: boolean; private: boolean };
+
+const NO_GRANTS: ChannelVisibilityGrants = { staff: false, team: false, private: false };
+
+export async function serverChannelGrants(userId: string, serverId: string): Promise<ChannelVisibilityGrants> {
+  const perms = await getEffectiveServerPermissions(userId, serverId);
+  return {
+    staff: perms.has('viewStaffChannels'),
+    team: perms.has('viewTeamChannels'),
+    private: perms.has('viewPrivateChannels'),
+  };
+}
+
+function isStaffOnlyChannelType(type: string): boolean {
+  return type === 'STAFF_COORD' || type === 'ORGANIZER_INTERNAL' || type === 'LOGS' || type === 'INCIDENT';
 }
 
 export async function assertCanAccessChannel(
@@ -53,13 +72,17 @@ export async function assertCanAccessChannel(
   }
 
   const staff = isStaff(user.role);
-  const staffOnlyType =
-    channel.type === 'STAFF_COORD' ||
-    channel.type === 'ORGANIZER_INTERNAL' ||
-    channel.type === 'LOGS' ||
-    channel.type === 'INCIDENT';
-  if (staffOnlyType && !staff) throw Forbidden();
-  if (channel.category?.staffOnly && !staff) throw Forbidden();
+  let grants: ChannelVisibilityGrants | null = null;
+  const getGrants = async (): Promise<ChannelVisibilityGrants> => {
+    if (!grants) {
+      grants = channel.serverId && !staff ? await serverChannelGrants(user.id, channel.serverId) : NO_GRANTS;
+    }
+    return grants;
+  };
+
+  if ((isStaffOnlyChannelType(channel.type) || channel.category?.staffOnly) && !staff) {
+    if (!(await getGrants()).staff) throw Forbidden();
+  }
 
   const effectiveTeamId = await resolveChannelTeamId(user.id, channel, user.teamId);
 
@@ -67,12 +90,14 @@ export async function assertCanAccessChannel(
   if (categoryTeamId) {
     if (staff) return;
     if (effectiveTeamId === categoryTeamId) return;
+    if ((await getGrants()).team) return;
     throw Forbidden();
   }
 
   if (channel.isPrivate) {
     if (staff) return;
     if (channel.teamId && channel.teamId === effectiveTeamId) return;
+    if ((await getGrants()).private) return;
     throw Forbidden();
   }
 }
@@ -107,26 +132,23 @@ export function canViewChannelInList(
     teamId: string | null;
     category?: { staffOnly?: boolean; teamId?: string | null } | null;
   },
-  user: { role: Role; teamId: string | null },
+  user: { role: Role; teamId: string | null; grants?: ChannelVisibilityGrants },
 ): boolean {
   if (channel.type === 'DIRECT_MESSAGE') return false;
 
   const staff = isStaff(user.role);
-  const staffOnlyType =
-    channel.type === 'STAFF_COORD' ||
-    channel.type === 'ORGANIZER_INTERNAL' ||
-    channel.type === 'LOGS' ||
-    channel.type === 'INCIDENT';
-  if (staffOnlyType && !staff) return false;
-  if (channel.category?.staffOnly && !staff) return false;
+  const grants = user.grants ?? NO_GRANTS;
+  if ((isStaffOnlyChannelType(channel.type) || channel.category?.staffOnly) && !staff && !grants.staff) {
+    return false;
+  }
 
   if (channel.category?.teamId) {
-    if (staff) return true;
+    if (staff || grants.team) return true;
     return channel.category.teamId === user.teamId;
   }
 
   if (channel.isPrivate) {
-    if (staff) return true;
+    if (staff || grants.private) return true;
     if (channel.teamId && channel.teamId === user.teamId) return true;
     return false;
   }

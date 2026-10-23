@@ -136,6 +136,7 @@ export default function TeamPage() {
     onSuccess: () => {
       toast.success(t.teamLogoUpload);
       void qc.invalidateQueries({ queryKey: queryKeys.team(teamId!) });
+      void qc.invalidateQueries({ queryKey: ['messages'] });
     },
     onError: (err) => toast.error(unwrapApiError(err).message),
   });
@@ -160,7 +161,10 @@ export default function TeamPage() {
 
   const clearLogoMut = useMutation({
     mutationFn: () => teamsApi.clearMyLogo(),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.team(teamId!) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.team(teamId!) });
+      void qc.invalidateQueries({ queryKey: ['messages'] });
+    },
     onError: (err) => toast.error(unwrapApiError(err).message),
   });
 

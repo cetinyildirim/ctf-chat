@@ -28,16 +28,22 @@
   }
 
   html.light {
-    --bg: 210 32% 98%;
-    --bg-elev: 210 26% 96%;
-    --bg-deep: 210 38% 92%;
-    --panel: 210 22% 94%;
-    --border: 220 18% 72%;
-    --ring: 189 70% 38%;
-    --fg: 220 45% 8%;
-    --fg-subtle: 220 14% 26%;
-    --muted: 220 16% 88%;
-    --muted-fg: 220 12% 36%;
+    --bg: 216 33% 98%;
+    --bg-elev: 0 0% 100%;
+    --bg-deep: 218 30% 95%;
+    --panel: 218 26% 96%;
+    --border: 218 20% 85%;
+    --ring: 199 89% 40%;
+    --fg: 222 47% 13%;
+    --fg-subtle: 220 18% 30%;
+    --muted: 218 30% 91%;
+    --muted-fg: 219 13% 42%;
+    /* Darker accents keep text/icons readable on light surfaces. */
+    --accent-cyan: 199 89% 38%;
+    --accent-violet: 258 58% 52%;
+    --accent-emerald: 160 70% 30%;
+    --accent-rose: 350 72% 47%;
+    --accent-amber: 32 92% 42%;
     color-scheme: light;
   }
 
@@ -57,23 +63,70 @@
   html.light .border-white\/5,
   html.light .border-white\/8,
   html.light .border-white\/10,
-  html.light .border-white\/15 {
-    border-color: hsla(220, 18%, 68%, 0.65) !important;
+  html.light .border-white\/15,
+  html.light .border-white\/20 {
+    border-color: hsl(var(--border)) !important;
   }
 
   html.light .bg-white\/\[0\.02\],
   html.light .bg-white\/\[0\.03\],
-  html.light .bg-white\/\[0\.04\] {
-    background-color: hsla(220, 20%, 50%, 0.06) !important;
+  html.light .bg-white\/\[0\.04\],
+  html.light .bg-white\/5,
+  html.light .bg-white\/10 {
+    background-color: hsl(var(--muted)) !important;
   }
 
-  html.light .text-muted-fg {
-    color: hsl(var(--muted-fg));
+  html.light .hover\:bg-white\/5:hover,
+  html.light .hover\:bg-white\/8:hover,
+  html.light .hover\:bg-white\/10:hover,
+  html.light .hover\:bg-white\/\[0\.02\]:hover,
+  html.light .hover\:bg-white\/\[0\.05\]:hover {
+    background-color: hsl(var(--muted)) !important;
+  }
+
+  html.light .text-muted-fg,
+  html.light .text-fg-subtle {
+    color: hsl(var(--muted-fg)) !important;
+  }
+
+  html.light .text-fg {
+    color: hsl(var(--fg)) !important;
   }
 
   html.light code,
   html.light .font-mono {
     color: hsl(220 40% 18%);
+  }
+
+  html.light .divide-white\/5 > :not([hidden]) ~ :not([hidden]),
+  html.light .divide-white\/8 > :not([hidden]) ~ :not([hidden]),
+  html.light .divide-white\/10 > :not([hidden]) ~ :not([hidden]) {
+    border-color: hsl(var(--border)) !important;
+  }
+
+  html.light input,
+  html.light textarea,
+  html.light select {
+    border-color: hsl(var(--border));
+    background-color: hsl(var(--bg-elev));
+    color: hsl(var(--fg));
+    -webkit-text-fill-color: hsl(var(--fg));
+  }
+
+  html.light input::placeholder,
+  html.light textarea::placeholder {
+    color: hsl(var(--muted-fg));
+    -webkit-text-fill-color: hsl(var(--muted-fg));
+    opacity: 1;
+  }
+
+  html.light input:-webkit-autofill,
+  html.light input:-webkit-autofill:hover,
+  html.light input:-webkit-autofill:focus,
+  html.light textarea:-webkit-autofill {
+    -webkit-text-fill-color: hsl(var(--fg));
+    box-shadow: 0 0 0 1000px hsl(var(--bg-elev)) inset;
+    transition: background-color 9999s ease-in-out 0s;
   }
 
   html.light .admin-page select,
@@ -86,10 +139,27 @@
 
   html.light body {
     background:
-      radial-gradient(1200px 600px at 12% -10%, hsla(189, 90%, 40%, 0.09), transparent 60%),
-      radial-gradient(900px 500px at 100% 0%, hsla(260, 80%, 50%, 0.07), transparent 60%),
+      radial-gradient(1200px 600px at 12% -10%, hsla(199, 89%, 48%, 0.06), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, hsla(258, 70%, 60%, 0.04), transparent 60%),
       linear-gradient(180deg, hsl(var(--bg-deep)) 0%, hsl(var(--bg)) 65%);
     background-attachment: fixed;
+  }
+
+  html.light .text-gradient-cyan {
+    background: linear-gradient(135deg, hsl(199, 89%, 36%) 0%, hsl(258, 58%, 50%) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+
+  html.light ::selection {
+    background: hsla(199, 89%, 45%, 0.22);
+  }
+
+  html.light ::-webkit-scrollbar-thumb {
+    background: hsla(220, 14%, 55%, 0.45);
+  }
+  html.light ::-webkit-scrollbar-thumb:hover {
+    background: hsla(220, 14%, 45%, 0.65);
   }
 
   html, body, #__next {

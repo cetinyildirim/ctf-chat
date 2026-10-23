@@ -113,13 +113,13 @@ export function ServerContextMenu({
             style={{ left: anchor.x, top: anchor.y }}
           />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="min-w-[14.5rem] border-white/10 bg-[#1e1f22]/98 backdrop-blur-md">
+        <DropdownMenuContent align="start" className="min-w-[14.5rem] border-border bg-bg/98 backdrop-blur-md">
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="text-fg-subtle">
               <Bell className="h-4 w-4 shrink-0" />
               <span>{t.notifyMenuTitle}</span>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="border-white/10 bg-[#1e1f22]/98">
+            <DropdownMenuSubContent className="border-border bg-bg/98">
               <MenuItem icon={SlidersHorizontal} label={t.notifyModeDefault} disabled={notifyBusy} onSelect={() => { onSetNotify(ChannelNotifyMode.DEFAULT); close(); }} />
               <MenuItem icon={Bell} label={t.notifyModeAll} disabled={notifyBusy} onSelect={() => { onSetNotify(ChannelNotifyMode.ALL); close(); }} />
               <MenuItem icon={AtSign} label={t.notifyModeMentions} disabled={notifyBusy} onSelect={() => { onSetNotify(ChannelNotifyMode.MENTIONS_ONLY); close(); }} />

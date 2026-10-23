@@ -8,6 +8,12 @@ import { Forbidden, NotFound } from '../../lib/http-error.js';
 import { audit } from '../../lib/audit.js';
 import { serializeUser } from '../serializers.js';
 import { revokeAllRefreshTokens, revokeSessionsIfAuthProfileChanged } from '../../lib/revoke-sessions.js';
+import {
+  notifyUserBanned,
+  notifyUserMuted,
+  notifyUserUnbanned,
+  notifyUserUnmuted,
+} from '../../lib/moderation-notify.js';
 
 const router: Router = Router();
 router.use(requireAnyPermission(Permission.USER_BAN, Permission.USER_MUTE, Permission.USER_VIEW_ALL));
@@ -18,6 +24,9 @@ const moderationSchema = z.object({
   isBanned: z.boolean().optional(),
   mutedUntil: z.union([z.string().datetime(), z.null()]).optional(),
   muteMinutes: z.number().int().min(1).max(60 * 24 * 365).optional(),
+  /** With isBanned=true: ban length; omitted or null = indefinite. */
+  banMinutes: z.number().int().min(1).max(60 * 24 * 365).nullable().optional(),
+  reason: z.string().trim().max(500).nullable().optional(),
 });
 
 router.get('/', async (req, res, next) => {
@@ -41,6 +50,8 @@ router.get('/', async (req, res, next) => {
       users: users.map((u) => ({
         ...serializeUser(u),
         isBanned: u.isBanned,
+        bannedUntil: u.bannedUntil?.toISOString() ?? null,
+        banReason: u.banReason,
         mutedUntil: u.mutedUntil?.toISOString() ?? null,
         mutedSince: u.mutedSince?.toISOString() ?? null,
       })),
@@ -59,6 +70,9 @@ function parseMeta(json: string | null): Record<string, unknown> {
 }
 
 function moderationKind(meta: Record<string, unknown>): 'mute' | 'unmute' | 'ban' | 'unban' | 'other' {
+  if (meta.action === 'mute' || meta.action === 'unmute' || meta.action === 'ban' || meta.action === 'unban') {
+    return meta.action;
+  }
   if (typeof meta.muteMinutes === 'number' && meta.muteMinutes > 0) return 'mute';
   if (typeof meta.mutedUntil === 'string' && meta.mutedUntil.length > 0) return 'mute';
   if (meta.mutedUntil === null && meta.mutedSince === null) return 'unmute';
@@ -148,26 +162,46 @@ router.patch('/:id/moderation', validate(idSchema, 'params'), validate(moderatio
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) throw NotFound();
 
+    const now = new Date();
+    const reason = data.reason?.trim() || null;
     let mutedUntil: Date | null | undefined = undefined;
     let mutedSince: Date | null | undefined = undefined;
     if (data.mutedUntil !== undefined) {
       mutedUntil = data.mutedUntil === null ? null : new Date(data.mutedUntil);
-      mutedSince = mutedUntil === null ? null : new Date();
+      mutedSince = mutedUntil === null ? null : now;
     } else if (data.muteMinutes !== undefined) {
-      const since = new Date();
-      mutedSince = since;
-      mutedUntil = new Date(since.getTime() + data.muteMinutes * 60_000);
+      mutedSince = now;
+      mutedUntil = new Date(now.getTime() + data.muteMinutes * 60_000);
+    }
+
+    let bannedUntil: Date | null | undefined = undefined;
+    if (data.isBanned === true) {
+      bannedUntil = data.banMinutes ? new Date(now.getTime() + data.banMinutes * 60_000) : null;
+    } else if (data.isBanned === false) {
+      bannedUntil = null;
     }
 
     const updated = await prisma.user.update({
       where: { id },
       data: {
-        ...(data.isBanned !== undefined ? { isBanned: data.isBanned } : {}),
-        ...(mutedUntil !== undefined ? { mutedUntil } : {}),
+        ...(data.isBanned !== undefined ? { isBanned: data.isBanned, banReason: data.isBanned ? reason : null } : {}),
+        ...(bannedUntil !== undefined ? { bannedUntil } : {}),
+        ...(mutedUntil !== undefined ? { mutedUntil, muteReason: mutedUntil ? reason : null } : {}),
         ...(mutedSince !== undefined ? { mutedSince } : {}),
       },
       include: { team: true },
     });
+
+    const action =
+      data.isBanned === true
+        ? 'ban'
+        : data.isBanned === false
+          ? 'unban'
+          : mutedUntil
+            ? 'mute'
+            : mutedUntil === null
+              ? 'unmute'
+              : null;
 
     if (data.isBanned === true && updated.isBanned) {
       await revokeAllRefreshTokens(id);
@@ -187,13 +221,30 @@ router.patch('/:id/moderation', validate(idSchema, 'params'), validate(moderatio
         mutedUntil: updated.mutedUntil?.toISOString() ?? null,
         mutedSince: updated.mutedSince?.toISOString() ?? null,
         muteMinutes: data.muteMinutes ?? null,
+        bannedUntil: updated.bannedUntil?.toISOString() ?? null,
+        banMinutes: data.banMinutes ?? null,
+        reason,
+        action,
       },
     });
+
+    if (action === 'mute' && updated.mutedUntil) {
+      const minutes = Math.max(1, Math.round((updated.mutedUntil.getTime() - now.getTime()) / 60_000));
+      await notifyUserMuted(id, { until: updated.mutedUntil, minutes, reason });
+    } else if (action === 'unmute' && existing.mutedUntil && existing.mutedUntil > now) {
+      await notifyUserUnmuted(id);
+    } else if (action === 'ban' && !existing.isBanned) {
+      await notifyUserBanned(id, { until: updated.bannedUntil, minutes: data.banMinutes ?? null, reason });
+    } else if (action === 'unban' && existing.isBanned) {
+      await notifyUserUnbanned(id, { expired: false });
+    }
 
     res.json({
       user: {
         ...serializeUser(updated),
         isBanned: updated.isBanned,
+        bannedUntil: updated.bannedUntil?.toISOString() ?? null,
+        banReason: updated.banReason,
         mutedUntil: updated.mutedUntil?.toISOString() ?? null,
         mutedSince: updated.mutedSince?.toISOString() ?? null,
       },

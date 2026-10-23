@@ -16,6 +16,8 @@ import { queryKeys } from '@/lib/query/client';
 import { useServerStore } from '@/store/server';
 import { unwrapApiError } from '@/lib/api/axios';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { directConversationHref } from '@/lib/chat/viewing';
 import type { PublicUser } from '@sydt/shared';
 
 type Row = {
@@ -87,7 +89,7 @@ export default function FriendsPage() {
     mutationFn: async (userId: string) => directApi.open(userId),
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.channelsAll });
-      router.push(`/channels/${res.channel.id}`);
+      router.push(directConversationHref(res.channel.id));
     },
     onError: (e) => toast.error(unwrapApiError(e).message),
   });
@@ -220,14 +222,32 @@ export default function FriendsPage() {
           <ul className="space-y-2">
             {accepted.map((row) => {
               const p = peer(me.id, row);
+              const unread = row.unreadCount ?? 0;
               return (
                 <li
                   key={row.id}
-                  className="flex flex-wrap items-center gap-3 rounded-lg border border-white/8 bg-white/[0.02] px-3 py-2"
+                  className={cn(
+                    'flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2',
+                    unread > 0
+                      ? 'border-accent-cyan/40 bg-accent-cyan/[0.06]'
+                      : 'border-white/8 bg-white/[0.02]',
+                  )}
                 >
-                  <Avatar name={p.displayName} src={p.avatarUrl} size="sm" />
+                  <div className="relative">
+                    <Avatar name={p.displayName} src={p.avatarUrl} size="sm" />
+                    {unread > 0 ? (
+                      <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-accent-cyan ring-2 ring-bg-deep" />
+                    ) : null}
+                  </div>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-fg">{p.displayName}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-medium text-fg">{p.displayName}</span>
+                      {unread > 0 ? (
+                        <span className="shrink-0 rounded-full bg-accent-cyan/15 px-2 py-0.5 text-[10px] font-semibold text-accent-cyan">
+                          {t.friendsUnreadMessages.replace('{{count}}', String(unread))}
+                        </span>
+                      ) : null}
+                    </div>
                     <div className="truncate text-[11px] text-fg-subtle">{p.username}</div>
                   </div>
                   <Button
@@ -235,8 +255,14 @@ export default function FriendsPage() {
                     size="sm"
                     disabled={dmMut.isPending}
                     onClick={() => dmMut.mutate(p.id)}
+                    className="relative"
                   >
                     {t.friendsMessage}
+                    {unread > 0 ? (
+                      <span className="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-rose px-1 text-[10px] font-bold text-white">
+                        {unread > 99 ? '99+' : unread}
+                      </span>
+                    ) : null}
                   </Button>
                   <Button
                     type="button"

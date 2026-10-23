@@ -5,7 +5,7 @@
  * notification must never fail the mutation that triggered it, so every helper
  * swallows its own errors after logging.
  */
-import { Permission, can, type NotificationKind } from '@sydt/shared';
+import { NotificationKind, Permission, can } from '@sydt/shared';
 import { prisma } from '../prisma.js';
 import { logger } from './logger.js';
 import { serializeNotification } from '../modules/serializers.js';
@@ -52,6 +52,66 @@ export async function notifyUsers(input: NotifyInput): Promise<void> {
     }
   } catch (err) {
     logger.warn({ err, kind: input.kind }, 'notification delivery failed');
+  }
+}
+
+/**
+ * One inbox row per DM conversation: each new message replaces the previous
+ * unread row so a chatty friend does not flood the inbox.
+ */
+export async function notifyDirectMessage(input: {
+  userId: string;
+  channelId: string;
+  fromDisplayName: string;
+  fromUsername: string;
+  preview: string;
+}): Promise<void> {
+  try {
+    const participant = await prisma.channelDmParticipant.findUnique({
+      where: { channelId_userId: { channelId: input.channelId, userId: input.userId } },
+      select: { lastReadAt: true },
+    });
+    const count = await prisma.message.count({
+      where: {
+        channelId: input.channelId,
+        authorId: { not: input.userId },
+        deletedAt: null,
+        ...(participant?.lastReadAt ? { createdAt: { gt: participant.lastReadAt } } : {}),
+      },
+    });
+    await prisma.notification.deleteMany({
+      where: {
+        userId: input.userId,
+        kind: NotificationKind.DIRECT_MESSAGE,
+        refId: input.channelId,
+        readAt: null,
+      },
+    });
+    const row = await prisma.notification.create({
+      data: {
+        userId: input.userId,
+        kind: NotificationKind.DIRECT_MESSAGE,
+        title:
+          count > 1
+            ? `${input.fromDisplayName} sent you ${count} messages`
+            : `${input.fromDisplayName} sent you a message`,
+        body: input.preview.slice(0, 500),
+        href: `/channels/${input.channelId}`,
+        refType: 'channel',
+        refId: input.channelId,
+        metaJson: JSON.stringify({
+          displayName: input.fromDisplayName,
+          username: input.fromUsername,
+          count,
+        }),
+      },
+    });
+    const unreadCount = await prisma.notification.count({
+      where: { userId: input.userId, readAt: null },
+    });
+    emitNotification(input.userId, serializeNotification(row), unreadCount);
+  } catch (err) {
+    logger.warn({ err }, 'direct message notification failed');
   }
 }
 

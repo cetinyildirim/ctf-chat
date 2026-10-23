@@ -8,5 +8,7 @@ export const createAnnouncementSchema = z.object({
   body: z.string().min(10).max(4000),
   severity: severityEnum.default('INFO'),
   scheduledFor: z.string().datetime().optional().nullable(),
+  /** Recipients must press "OK" before they can keep using the platform. */
+  requireAck: z.boolean().optional(),
 });
 export type CreateAnnouncementInput = z.infer<typeof createAnnouncementSchema>;

@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { GlassPanel } from './GlassPanel';
 import type { LucideIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useI18n } from '@/components/providers/LocaleProvider';
 
 interface MetricCardProps {
   label: string;
@@ -34,6 +35,7 @@ const toneBg = {
 };
 
 export function MetricCard({ label, value, icon: Icon, tone = 'default', trend, subline, className }: MetricCardProps) {
+  const { t } = useI18n();
   return (
     <GlassPanel className={cn('relative overflow-hidden p-4', className)} tone={tone === 'default' ? 'default' : tone}>
       <div className="flex items-start justify-between gap-3">
@@ -59,7 +61,7 @@ export function MetricCard({ label, value, icon: Icon, tone = 'default', trend, 
           <span className={trend.positive ? 'text-accent-emerald' : 'text-accent-rose'}>
             {trend.positive ? '▲' : '▼'} {Math.abs(trend.value)}%
           </span>
-          <span className="text-muted-fg">vs. last min</span>
+          <span className="text-muted-fg">{t.metricVsLastMin}</span>
         </div>
       ) : null}
       <div

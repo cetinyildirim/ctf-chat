@@ -1,4 +1,6 @@
 import axios, { type AxiosError, type AxiosInstance } from 'axios';
+import { translateApiMessage } from '@/i18n/api-errors';
+import { getCurrentLocale } from '@/i18n/current-locale';
 
 const baseURL = '/api';
 
@@ -67,14 +69,32 @@ api.interceptors.response.use(
   },
 );
 
-export function unwrapApiError(err: unknown): { code?: string; message: string } {
-  if (axios.isAxiosError(err)) {
-    const data = err.response?.data as { error?: { code?: string; message?: string } } | undefined;
-    if (data?.error?.message) {
-      return { code: data.error.code, message: data.error.message };
-    }
-    return { message: err.message };
+function firstFieldError(details: unknown): string | null {
+  const d = details as { formErrors?: string[]; fieldErrors?: Record<string, string[] | undefined> } | undefined;
+  if (d?.formErrors?.[0]) return d.formErrors[0];
+  for (const msgs of Object.values(d?.fieldErrors ?? {})) {
+    if (msgs?.[0]) return msgs[0];
   }
-  if (err instanceof Error) return { message: err.message };
-  return { message: 'Unknown error' };
+  return null;
+}
+
+export function unwrapApiError(err: unknown): { code?: string; message: string; details?: unknown } {
+  const locale = getCurrentLocale();
+  const tr = (m: string) => translateApiMessage(m, locale);
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as
+      | { error?: { code?: string; message?: string; details?: unknown } }
+      | undefined;
+    if (data?.error?.message) {
+      let message = tr(data.error.message);
+      if (data.error.code === 'VALIDATION') {
+        const field = firstFieldError(data.error.details);
+        if (field) message = `${message}: ${tr(field)}`;
+      }
+      return { code: data.error.code, message, details: data.error.details };
+    }
+    return { message: tr(err.message) };
+  }
+  if (err instanceof Error) return { message: tr(err.message) };
+  return { message: tr('Unknown error') };
 }

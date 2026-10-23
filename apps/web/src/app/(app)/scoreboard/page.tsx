@@ -74,7 +74,7 @@ export default function ScoreboardPage() {
               : ctfd?.generatedAt
                 ? t.scoreboardUpdated.replace(
                     '{{time}}',
-                    new Date(ctfd.generatedAt).toLocaleTimeString(),
+                    new Date(ctfd.generatedAt).toLocaleTimeString(t.dateLocale),
                   )
                 : t.scoreboardStreaming
         }
@@ -102,7 +102,7 @@ export default function ScoreboardPage() {
               />
               <MetricCard
                 label={t.scoreboardTopScore}
-                value={connected && topScore > 0 ? topScore.toLocaleString() : dash}
+                value={connected && topScore > 0 ? topScore.toLocaleString(t.dateLocale) : dash}
                 icon={Trophy}
                 tone="amber"
               />
@@ -115,7 +115,7 @@ export default function ScoreboardPage() {
                     dash
                   )
                 }
-                subline={connected && leader ? `${leader.score.toLocaleString()} pts` : undefined}
+                subline={connected && leader ? `${leader.score.toLocaleString(t.dateLocale)} ${t.pointsShort}` : undefined}
                 icon={Crown}
                 tone="violet"
               />

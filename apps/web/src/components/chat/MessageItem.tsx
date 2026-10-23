@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { motion } from 'framer-motion';
 import {
   Reply,
   Smile,
@@ -12,8 +11,9 @@ import {
 } from 'lucide-react';
 import type { Message } from '@sydt/shared';
 import { Permission, isStaff } from '@sydt/shared';
-import { resolveUserAvatarSrc } from '@/lib/branding/user-avatar';
+import { resolveUserAvatarSrc, showsTeamCornerBadge } from '@/lib/branding/user-avatar';
 import { AvatarWithStatus } from '@/components/common/AvatarWithStatus';
+import { LightboxImage } from '@/components/common/ImageLightbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { UserIdentity } from '@/components/common/UserIdentity';
@@ -39,6 +39,8 @@ interface Props {
   onDelete: (id: string) => void;
   onPin?: (id: string) => void;
   onReply: (id: string) => void;
+  /** Server role grants `manageMessages` in this channel's server. */
+  canModerate?: boolean;
 }
 
 export function MessageItem({
@@ -50,11 +52,12 @@ export function MessageItem({
   onDelete,
   onPin,
   onReply,
+  canModerate = false,
 }: Props) {
   const { t } = useI18n();
   const me = useAuthStore((s) => s.user);
-  const canPin = useCan(Permission.MESSAGE_PIN);
-  const canDeleteAny = useCan(Permission.MESSAGE_DELETE_ANY);
+  const canPin = useCan(Permission.MESSAGE_PIN) || canModerate;
+  const canDeleteAny = useCan(Permission.MESSAGE_DELETE_ANY) || canModerate;
 
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(message.content);
@@ -79,19 +82,16 @@ export function MessageItem({
   if (message.deletedAt) {
     return (
       <div className={cn('group relative px-4 py-1 text-sm italic text-muted-fg', grouped ? 'pl-16' : 'pt-2')}>
-        message deleted
+        {t.msgDeleted}
       </div>
     );
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18 }}
+    <div
       className={cn(
         'group relative flex gap-3 px-4 transition-colors',
-        grouped ? 'py-0.5 pl-16' : 'py-2 mt-1',
+        grouped ? 'py-0.5 pl-16' : 'pt-3 pb-2',
         'hover:bg-white/[0.02]',
         highlighted && 'bg-accent-cyan/10 ring-1 ring-inset ring-accent-cyan/25',
       )}
@@ -111,7 +111,7 @@ export function MessageItem({
             teamColor={message.author.team?.color}
             teamName={message.author.team?.name}
             team={message.author.team}
-            showTeamBadge={!!message.author.team}
+            showTeamBadge={showsTeamCornerBadge(message.author)}
           />
         </UserProfileTrigger>
       ) : (
@@ -143,7 +143,7 @@ export function MessageItem({
               </span>
             ) : null}
             {message.editedAt ? (
-              <span className="text-[10px] italic text-muted-fg">(edited)</span>
+              <span className="text-[10px] italic text-muted-fg">{t.msgEdited}</span>
             ) : null}
             </div>
           </div>
@@ -151,9 +151,9 @@ export function MessageItem({
 
         {message.replyTo ? (
           <div className="mb-1 max-w-[640px] truncate rounded-md border-l-2 border-accent-violet/50 bg-accent-violet/5 pl-2 text-[12px] text-fg-subtle">
-            <span className="text-accent-violet">↳ reply</span>{' '}
+            <span className="text-accent-violet">{t.msgReplyMarker}</span>{' '}
             <span className="text-muted-fg">·</span>{' '}
-            <span className="truncate">{message.replyTo.content || '(empty)'}</span>
+            <span className="truncate">{message.replyTo.content || t.composerEmptyReply}</span>
           </div>
         ) : null}
 
@@ -167,12 +167,12 @@ export function MessageItem({
             />
             <div className="flex items-center gap-2 text-[11px]">
               <Button size="sm" variant="primary" onClick={submitEdit}>
-                Save
+                {t.save}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-                Cancel
+                {t.commonCancel}
               </Button>
-              <span className="text-muted-fg">Enter to save · Esc to cancel</span>
+              <span className="text-muted-fg">{t.msgEditHint}</span>
             </div>
           </div>
         ) : (
@@ -183,20 +183,7 @@ export function MessageItem({
           <div className="mt-2 flex flex-col gap-2">
             {message.attachments.map((a) =>
               a.mimeType.startsWith('image/') ? (
-                <a
-                  key={a.id}
-                  href={a.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block max-w-md overflow-hidden rounded-md border border-white/10 bg-black/20"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={a.url}
-                    alt={a.name}
-                    className="max-h-72 w-full object-contain"
-                  />
-                </a>
+                <LightboxImage key={a.id} src={a.url} alt={a.name} />
               ) : (
                 <a
                   key={a.id}
@@ -243,7 +230,7 @@ export function MessageItem({
       <div className="pointer-events-none absolute right-3 -top-3 z-10 flex items-center gap-0.5 rounded-md border border-white/10 bg-bg-elev/80 px-1 py-0.5 opacity-0 shadow-glass backdrop-blur-md group-hover:pointer-events-auto group-hover:opacity-100">
         <Popover>
           <PopoverTrigger asChild>
-            <button className="rounded p-1 text-fg-subtle hover:bg-white/10 hover:text-fg" title="Add reaction">
+            <button className="rounded p-1 text-fg-subtle hover:bg-white/10 hover:text-fg" title={t.msgAddReaction}>
               <Smile className="h-3.5 w-3.5" />
             </button>
           </PopoverTrigger>
@@ -265,7 +252,7 @@ export function MessageItem({
         <button
           className="rounded p-1 text-fg-subtle hover:bg-white/10 hover:text-fg"
           onClick={() => onReply(message.id)}
-          title="Reply"
+          title={t.msgReply}
         >
           <Reply className="h-3.5 w-3.5" />
         </button>
@@ -273,7 +260,7 @@ export function MessageItem({
           <button
             className="rounded p-1 text-fg-subtle hover:bg-white/10 hover:text-fg"
             onClick={() => setEditing(true)}
-            title="Edit"
+            title={t.msgEdit}
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -282,7 +269,7 @@ export function MessageItem({
           <button
             className="rounded p-1 text-fg-subtle hover:bg-white/10 hover:text-fg"
             onClick={() => onPin(message.id)}
-            title="Pin"
+            title={t.msgPin}
           >
             <Pin className="h-3.5 w-3.5" />
           </button>
@@ -291,12 +278,12 @@ export function MessageItem({
           <button
             className="rounded p-1 text-fg-subtle hover:bg-accent-rose/15 hover:text-accent-rose"
             onClick={() => onDelete(message.id)}
-            title="Delete"
+            title={t.msgDelete}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         ) : null}
       </div>
-    </motion.div>
+    </div>
   );
 }

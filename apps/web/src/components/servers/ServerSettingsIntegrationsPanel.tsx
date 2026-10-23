@@ -22,7 +22,13 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
   const qc = useQueryClient();
   const me = useAuthStore((s) => s.user);
   const canManage = !!me?.permissions.includes(Permission.ADMIN_DASHBOARD);
-  const canAnnounce = !!me?.permissions.includes(Permission.ANNOUNCEMENT_CREATE);
+  const { data: serverPerms } = useQuery({
+    queryKey: queryKeys.serverMyPermissions(serverId),
+    queryFn: () => serversApi.myPermissions(serverId),
+    staleTime: 60_000,
+  });
+  const canAnnounce =
+    !!me?.permissions.includes(Permission.ANNOUNCEMENT_CREATE) || !!serverPerms?.includes('manageAnnouncements');
   const activeServerId = useServerStore((s) => s.activeServerId);
 
   const { data: integrations, isLoading: intLoading } = useQuery({
@@ -39,6 +45,7 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
   const { data: announcements = [] } = useQuery({
     queryKey: queryKeys.serverAnnouncements(serverId),
     queryFn: () => serversApi.listAnnouncements(serverId),
+    enabled: canAnnounce,
   });
 
   const { data: channelsData } = useQuery({
@@ -54,6 +61,7 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
   const [annTitle, setAnnTitle] = React.useState('');
   const [annBody, setAnnBody] = React.useState('');
   const [annSchedule, setAnnSchedule] = React.useState('');
+  const [annRequireAck, setAnnRequireAck] = React.useState(false);
   const [whLabel, setWhLabel] = React.useState('');
   const [whUrl, setWhUrl] = React.useState('');
   const [ctfdBaseUrl, setCtfdBaseUrl] = React.useState('');
@@ -189,7 +197,7 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
               : result.code === 'invalid_url'
                 ? t.serverIntegration_ctfdTestInvalidUrl
                 : t.serverIntegration_ctfdTestError;
-      toast.error(msg);
+      toast.error(result.detail ? `${msg} (${result.detail})` : msg);
     },
     onError: (err) => toast.error(unwrapApiError(err).message),
   });
@@ -215,12 +223,14 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
         body: annBody.trim(),
         severity: 'INFO',
         scheduledFor: annSchedule ? new Date(annSchedule).toISOString() : null,
+        requireAck: annRequireAck,
       }),
     onSuccess: () => {
       toast.success(t.serverAnnouncementScheduled);
       setAnnTitle('');
       setAnnBody('');
       setAnnSchedule('');
+      setAnnRequireAck(false);
       void qc.invalidateQueries({ queryKey: queryKeys.serverAnnouncements(serverId) });
     },
     onError: (err) => toast.error(unwrapApiError(err).message),
@@ -266,6 +276,15 @@ export function ServerSettingsIntegrationsPanel({ serverId }: { serverId: string
               <Textarea value={annBody} onChange={(e) => setAnnBody(e.target.value)} rows={4} />
               <Label>{t.serverAnnouncementSchedule}</Label>
               <Input type="datetime-local" value={annSchedule} onChange={(e) => setAnnSchedule(e.target.value)} />
+              <label className="flex cursor-pointer items-center gap-2 pt-1 text-sm text-fg">
+                <input
+                  type="checkbox"
+                  className="accent-accent-cyan"
+                  checked={annRequireAck}
+                  onChange={(e) => setAnnRequireAck(e.target.checked)}
+                />
+                {t.announcementRequireAck}
+              </label>
             </div>
             <Button
               type="button"

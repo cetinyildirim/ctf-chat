@@ -26,6 +26,10 @@ interface NotificationState {
   hydrate: (items: Notification[]) => void;
   markAllRead: () => void;
   markRead: (id: string) => void;
+  /** Marks every inbox row pointing at `refId` (e.g. a DM channel) as read. */
+  markReadByRef: (refId: string) => void;
+  /** Drops rows for `refId` so a replacement row does not leave a stale duplicate. */
+  removeByRef: (refId: string) => void;
   remove: (id: string) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setDnd: (dnd: boolean) => void;
@@ -88,7 +92,21 @@ export const useNotificationStore = create<NotificationState>()(
         set((s) => ({ items: s.items.map((i) => ({ ...i, read: true })), unreadCount: 0 })),
       markRead: (id) =>
         set((s) => {
+          const target = s.items.find((i) => i.id === id);
+          if (!target || target.read) return s;
           const items = s.items.map((i) => (i.id === id ? { ...i, read: true } : i));
+          return { items, unreadCount: countUnread(items) };
+        }),
+      markReadByRef: (refId) =>
+        set((s) => {
+          if (!s.items.some((i) => i.refId === refId && !i.read)) return s;
+          const items = s.items.map((i) => (i.refId === refId ? { ...i, read: true } : i));
+          return { items, unreadCount: countUnread(items) };
+        }),
+      removeByRef: (refId) =>
+        set((s) => {
+          if (!s.items.some((i) => i.refId === refId)) return s;
+          const items = s.items.filter((i) => i.refId !== refId);
           return { items, unreadCount: countUnread(items) };
         }),
       remove: (id) =>

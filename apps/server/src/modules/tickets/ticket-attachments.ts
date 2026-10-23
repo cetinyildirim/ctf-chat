@@ -13,6 +13,7 @@ import { prisma } from '../../prisma.js';
 import { BadRequest } from '../../lib/http-error.js';
 import { getUploadMaxMb } from '../../lib/platform-settings.js';
 import { verifyTicketUploadFile } from '../../lib/allowed-upload.js';
+import { assertUploadNotInfected } from '../../lib/virus-scan.js';
 import {
   absolutePathForStoredAttachment,
   safeBasename,
@@ -64,6 +65,7 @@ export async function attachFilesToTicketEvent(args: {
       const verifiedMime = await verifyTicketUploadFile(file.path, file.mimetype).catch((err) => {
         throw BadRequest(`${safeBasename(file.originalname)}: ${(err as Error).message}`);
       });
+      await assertUploadNotInfected(file.path, safeBasename(file.originalname));
 
       const attachment = await prisma.attachment.create({
         data: {

@@ -5,6 +5,7 @@ import { Trophy, Droplet, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import type { ScoreboardEntry } from '@sydt/shared';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
+import { useI18n } from '@/components/providers/LocaleProvider';
 
 interface Props {
   entry: ScoreboardEntry;
@@ -18,6 +19,7 @@ const medalByRank: Record<number, string> = {
 };
 
 export function RankRow({ entry, topScore }: Props) {
+  const { t } = useI18n();
   const pct = topScore > 0 ? Math.max(2, (entry.score / topScore) * 100) : 0;
   const rankChange =
     entry.previousRank == null
@@ -81,13 +83,14 @@ export function RankRow({ entry, topScore }: Props) {
           />
         </div>
         <div className="mt-1 text-[10px] text-muted-fg">
-          {entry.solveCount} solve{entry.solveCount === 1 ? '' : 's'} · {entry.team.memberCount} members
+          {(entry.solveCount === 1 ? t.solveCountOne : t.solveCountMany).replace('{{count}}', String(entry.solveCount))} ·{' '}
+          {t.membersCount.replace('{{count}}', String(entry.team.memberCount))}
         </div>
       </div>
 
       <div className="text-right font-mono tabular-nums">
-        <div className="text-base font-bold text-fg">{entry.score.toLocaleString()}</div>
-        <div className="text-[10px] uppercase tracking-wider text-muted-fg">points</div>
+        <div className="text-base font-bold text-fg">{entry.score.toLocaleString(t.dateLocale)}</div>
+        <div className="text-[10px] uppercase tracking-wider text-muted-fg">{t.pointsLabel}</div>
       </div>
 
       <div className="text-right text-[11px]">

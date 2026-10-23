@@ -17,7 +17,15 @@ export function TypingIndicator({ channelId }: { channelId: string }) {
     queryFn: usersApi.online,
   });
 
-  if (ids.length === 0) return <div className="h-5" />;
+  if (ids.length === 0) {
+    return (
+      <div
+        className="pointer-events-none absolute bottom-1 left-4 h-5"
+        aria-hidden
+      />
+    );
+  }
+
   const names = ids
     .map((id) => data?.users.find((u) => u.id === id)?.displayName ?? 'Someone')
     .slice(0, 3);
@@ -30,7 +38,7 @@ export function TypingIndicator({ channelId }: { channelId: string }) {
       : `${names[0]}, ${names[1]} and ${ids.length - 2} more are typing`;
 
   return (
-    <div className="pointer-events-none absolute bottom-1 left-4 flex items-center gap-2 text-xs text-fg-subtle">
+    <div className="pointer-events-none absolute bottom-1 left-4 flex h-5 items-center gap-2 text-xs text-fg-subtle">
       <span className="inline-flex gap-0.5">
         <span className="h-1 w-1 animate-bounce rounded-full bg-accent-cyan [animation-delay:-200ms]" />
         <span className="h-1 w-1 animate-bounce rounded-full bg-accent-cyan [animation-delay:-100ms]" />

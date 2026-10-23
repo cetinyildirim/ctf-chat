@@ -38,7 +38,8 @@ function NotificationsPageInner() {
   React.useEffect(() => {
     if (!highlightId) return;
     const match = items.find((n) => n.refId === highlightId || n.href?.includes(highlightId));
-    if (match) markRead(match.id);
+    // Only mark unread rows — otherwise markRead → items change → effect loops forever.
+    if (match && !match.read) markRead(match.id);
   }, [highlightId, items, markRead]);
 
   const openNotification = (href: string | undefined, id: string) => {

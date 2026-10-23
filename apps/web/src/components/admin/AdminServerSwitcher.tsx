@@ -52,7 +52,7 @@ export function AdminServerSwitcher({ className }: { className?: string }) {
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-white/12 bg-[#25262b] px-3 text-left text-sm font-medium text-fg shadow-sm transition-colors hover:border-accent-cyan/35 hover:bg-[#2b2d33]"
+            className="flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-border bg-bg-elev px-3 text-left text-sm font-medium text-fg shadow-sm transition-colors hover:border-accent-cyan/35 hover:bg-muted"
           >
             <span className="truncate">{active?.name ?? t.adminOverviewNoServer}</span>
             <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-fg transition-transform', open && 'rotate-180')} />
@@ -60,7 +60,7 @@ export function AdminServerSwitcher({ className }: { className?: string }) {
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          className="w-[var(--radix-popover-trigger-width)] border-white/10 bg-[#1e1f22] p-1"
+          className="w-[var(--radix-popover-trigger-width)] border-border bg-bg p-1"
         >
           <ul className="max-h-56 overflow-y-auto">
             {options.map((s) => {

@@ -25,8 +25,30 @@ const BLOCKED_MESSAGE_MIMES = new Set([
   'application/xhtml+xml',
 ]);
 
+/** Browser/OS-specific names for the same format (e.g. Windows labels ZIPs `x-zip-compressed`). */
+const MIME_ALIASES: Record<string, string> = {
+  'application/x-zip-compressed': 'application/zip',
+  'application/x-zip': 'application/zip',
+  'application/x-gzip': 'application/gzip',
+  'application/x-gtar': 'application/x-tar',
+  'audio/x-wav': 'audio/wav',
+  'audio/wave': 'audio/wav',
+  'audio/vnd.wave': 'audio/wav',
+  'audio/mp3': 'audio/mpeg',
+};
+
+/** Legacy Office files are OLE containers; content sniffing only reports `x-cfb`. */
+const CFB_CONTAINER_MIMES = new Set(['application/msword', 'application/vnd.ms-excel']);
+
 function normalizeMime(mime: string): string {
-  return (mime || 'application/octet-stream').split(';')[0]!.trim().toLowerCase();
+  const base = (mime || 'application/octet-stream').split(';')[0]!.trim().toLowerCase();
+  return MIME_ALIASES[base] ?? base;
+}
+
+function sniffedMatchesClaim(claimed: string, detected: string): boolean {
+  if (detected === claimed) return true;
+  if (claimed.startsWith('image/') && detected.startsWith('image/')) return true;
+  return detected === 'application/x-cfb' && CFB_CONTAINER_MIMES.has(claimed);
 }
 
 export function isAllowedMessageUpload(mime: string): boolean {
@@ -70,11 +92,12 @@ export async function verifyMessageUploadFile(
   if (!detectedMime) {
     throw new Error('Could not detect file type');
   }
+  if (!sniffedMatchesClaim(claimed, detectedMime)) {
+    throw new Error('File content does not match declared type');
+  }
+  if (detectedMime === 'application/x-cfb') return claimed;
   if (!isAllowedMessageUpload(detectedMime)) {
     throw new Error(`Detected file type not allowed: ${detectedMime}`);
-  }
-  if (detectedMime !== claimed && !(claimed.startsWith('image/') && detectedMime.startsWith('image/'))) {
-    throw new Error('File content does not match declared type');
   }
   return detectedMime;
 }

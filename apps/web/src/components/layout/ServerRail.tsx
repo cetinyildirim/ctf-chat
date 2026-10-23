@@ -4,22 +4,35 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Hash, LifeBuoy, Plus, ShieldAlert, Trophy, UserRound, Users } from 'lucide-react';
+import { Hash, LifeBuoy, MessagesSquare, Plus, ShieldAlert, Trophy, UserRound, Users } from 'lucide-react';
 import { ChannelNotifyMode, Permission, type ChatServer } from '@sydt/shared';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth';
 import { useI18n } from '@/components/providers/LocaleProvider';
 import { useServerStore } from '@/store/server';
-import { serversApi } from '@/lib/api/endpoints';
+import { directApi, friendsApi, serversApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/query/client';
 import { resolveServerIconSrc } from '@/lib/branding/logo-badges';
 import { ServerContextMenu } from '@/components/servers/ServerContextMenu';
-import { EditServerMemberDialog } from '@/components/servers/EditServerMemberDialog';
-import { ServerSettingsDialog } from '@/components/servers/ServerSettingsDialog';
-import { CreateServerDialog } from '@/components/servers/CreateServerDialog';
 import { toast } from 'sonner';
 import { unwrapApiError } from '@/lib/api/axios';
+
+const EditServerMemberDialog = React.lazy(() =>
+  import('@/components/servers/EditServerMemberDialog').then((m) => ({
+    default: m.EditServerMemberDialog,
+  })),
+);
+const ServerSettingsDialog = React.lazy(() =>
+  import('@/components/servers/ServerSettingsDialog').then((m) => ({
+    default: m.ServerSettingsDialog,
+  })),
+);
+const CreateServerDialog = React.lazy(() =>
+  import('@/components/servers/CreateServerDialog').then((m) => ({
+    default: m.CreateServerDialog,
+  })),
+);
 
 interface RailItem {
   href: string;
@@ -69,12 +82,14 @@ function RailNavLink({
   icon: Icon,
   active,
   tone,
+  badge = 0,
 }: {
   href: string;
   label: string;
   icon: RailItem['icon'];
   active: boolean;
   tone: RailNavTone;
+  badge?: number;
 }) {
   const styles = railNavToneStyles[tone];
   return (
@@ -96,6 +111,11 @@ function RailNavLink({
             />
           ) : null}
           <Icon className="h-5 w-5" strokeWidth={2.25} />
+          {badge > 0 ? (
+            <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-rose px-1 text-[10px] font-bold text-white ring-2 ring-bg-deep">
+              {badge > 99 ? '99+' : badge}
+            </span>
+          ) : null}
         </Link>
       </TooltipTrigger>
       <TooltipContent side="right">{label}</TooltipContent>
@@ -143,6 +163,21 @@ export function ServerRail() {
   });
   const settingsServer = servers.find((s) => s.id === settingsServerId) ?? null;
 
+  const { data: friends } = useQuery({
+    queryKey: queryKeys.friends,
+    queryFn: friendsApi.summary,
+    enabled: !!user,
+  });
+  const friendsBadge = friends?.pendingIncoming.length ?? 0;
+
+  const { data: directInbox } = useQuery({
+    queryKey: queryKeys.directConversations,
+    queryFn: directApi.conversations,
+    enabled: !!user,
+    refetchInterval: 60_000,
+  });
+  const messagesBadge = directInbox?.totalUnread ?? 0;
+
   const notifyMut = useMutation({
     mutationFn: ({ serverId, mode }: { serverId: string; mode: ChannelNotifyMode }) =>
       serversApi.setNotify(serverId, mode),
@@ -181,6 +216,7 @@ export function ServerRail() {
   };
 
   const canCreate = !!user?.permissions.includes(Permission.ADMIN_DASHBOARD);
+  const viewingDirect = !!directInbox?.conversations.some((c) => pathname === `/channels/${c.channelId}`);
 
   const navItems: RailItem[] = React.useMemo(
     () => [
@@ -256,7 +292,16 @@ export function ServerRail() {
             label={t.railChat}
             icon={Hash}
             tone="violet"
-            active={pathname === '/' || pathname.startsWith('/channels')}
+            active={pathname === '/' || (pathname.startsWith('/channels') && !viewingDirect)}
+          />
+
+          <RailNavLink
+            href="/messages"
+            label={t.railMessages}
+            icon={MessagesSquare}
+            tone="cyan"
+            active={pathname.startsWith('/messages') || viewingDirect}
+            badge={messagesBadge}
           />
 
           {navItems.map((item) => {
@@ -269,6 +314,7 @@ export function ServerRail() {
                 icon={item.icon}
                 tone={item.tone}
                 active={item.match(pathname)}
+                badge={item.href === '/friends' ? friendsBadge : 0}
               />
             );
           })}
@@ -276,17 +322,23 @@ export function ServerRail() {
       </aside>
 
       {editServer ? (
-        <EditServerMemberDialog server={editServer} open={!!editServer} onOpenChange={(o) => !o && setEditServer(null)} />
+        <React.Suspense fallback={null}>
+          <EditServerMemberDialog server={editServer} open={!!editServer} onOpenChange={(o) => !o && setEditServer(null)} />
+        </React.Suspense>
       ) : null}
       {settingsServer ? (
-        <ServerSettingsDialog
-          server={settingsServer}
-          open={!!settingsServer}
-          onOpenChange={(o) => !o && setSettingsServerId(null)}
-          onDeleted={() => setSettingsServerId(null)}
-        />
+        <React.Suspense fallback={null}>
+          <ServerSettingsDialog
+            server={settingsServer}
+            open={!!settingsServer}
+            onOpenChange={(o) => !o && setSettingsServerId(null)}
+            onDeleted={() => setSettingsServerId(null)}
+          />
+        </React.Suspense>
       ) : null}
-      <CreateServerDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <React.Suspense fallback={null}>
+        {createOpen ? <CreateServerDialog open={createOpen} onOpenChange={setCreateOpen} /> : null}
+      </React.Suspense>
     </>
   );
 }

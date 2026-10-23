@@ -17,7 +17,12 @@ import { serializeChannel, serializeUser } from '../serializers.js';
 import { emitChannelCreated, emitChannelsRefresh } from '../../realtime/broadcasters.js';
 import { logoImageUpload } from '../../lib/upload.js';
 import { removeLogoFiles, writeLogoFile } from '../../lib/logo-files.js';
-import { loadChannel, assertCanAccessChannel, canViewChannelInList } from '../messages/access.js';
+import {
+  loadChannel,
+  assertCanAccessChannel,
+  canViewChannelInList,
+  serverChannelGrants,
+} from '../messages/access.js';
 import { requireServerMember } from '../../lib/server-membership.js';
 import { getUserTeamOnServer } from '../../lib/team-membership.js';
 import {
@@ -96,6 +101,7 @@ router.get('/', async (req, res, next) => {
       id: user.id,
       role: user.role,
       teamId: myTeam?.id ?? user.teamId,
+      grants: isStaff(user.role) ? undefined : await serverChannelGrants(user.id, serverId),
     };
 
     const visible = channels.filter((c) =>
@@ -130,6 +136,9 @@ router.get('/', async (req, res, next) => {
 
     const defaultNotifyMode = normalizeNotifyDefault(me?.notifyDefault ?? 'ALL');
 
+    const includeEmpty =
+      req.query.includeEmpty === '1' || req.query.includeEmpty === 'true';
+
     const visibleCategoryIds = new Set(
       visible.map((c) => c.categoryId).filter((id): id is string => !!id),
     );
@@ -137,16 +146,19 @@ router.get('/', async (req, res, next) => {
     res.json({
       categories: categories
         .filter((c) => {
-          if (c.staffOnly && !isStaff(user.role)) return false;
+          if (c.staffOnly && !isStaff(user.role) && !listUser.grants?.staff) return false;
           if (c.teamId) {
-            if (isStaff(user.role)) return visibleCategoryIds.has(c.id) || c.teamId === listUser.teamId;
+            if (isStaff(user.role) || listUser.grants?.team) {
+              return visibleCategoryIds.has(c.id) || c.teamId === listUser.teamId;
+            }
             return c.teamId === listUser.teamId;
           }
           return visibleCategoryIds.has(c.id) || !c.teamId;
         })
         .filter((c) => {
-          // Hide empty non-team categories from the rail; keep team workspace even if empty briefly.
+          // Hide empty non-team categories from the rail; settings/admin can request includeEmpty.
           if (c.teamId) return true;
+          if (includeEmpty) return true;
           return visibleCategoryIds.has(c.id);
         })
         .map((c) => ({

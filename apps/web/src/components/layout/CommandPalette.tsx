@@ -26,7 +26,9 @@ import {
   Users,
   Bell,
   ArrowRight,
+  ScrollText,
 } from 'lucide-react';
+import { rulesHref } from '@/lib/legal';
 import { useAuthStore } from '@/store/auth';
 import { useI18n } from '@/components/providers/LocaleProvider';
 import { ticketStatusLabel } from '@/i18n/ticket-labels';
@@ -38,7 +40,7 @@ export function CommandPalette() {
   const setOpen = useUIStore((s) => s.setCommandOpen);
   const user = useAuthStore((s) => s.user);
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -79,45 +81,48 @@ export function CommandPalette() {
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Type a command or search…" />
+      <CommandInput placeholder={t.cmdPlaceholder} />
       <CommandList>
-        <CommandEmpty>No matches.</CommandEmpty>
+        <CommandEmpty>{t.cmdNoMatches}</CommandEmpty>
 
-        <CommandGroup heading="Navigation">
+        <CommandGroup heading={t.cmdGroupNavigation}>
           <CommandItem onSelect={() => go('/')}>
-            <Hash className="h-4 w-4 text-accent-cyan" /> Open chat
+            <Hash className="h-4 w-4 text-accent-cyan" /> {t.cmdOpenChat}
             <CommandShortcut>G C</CommandShortcut>
           </CommandItem>
           <CommandItem onSelect={() => go('/scoreboard')}>
-            <Trophy className="h-4 w-4 text-accent-amber" /> Open scoreboard
+            <Trophy className="h-4 w-4 text-accent-amber" /> {t.cmdOpenScoreboard}
             <CommandShortcut>G S</CommandShortcut>
           </CommandItem>
           <CommandItem onSelect={() => go('/challenges')}>
-            <Flag className="h-4 w-4 text-accent-emerald" /> Browse challenges
+            <Flag className="h-4 w-4 text-accent-emerald" /> {t.cmdBrowseChallenges}
           </CommandItem>
           <CommandItem onSelect={() => go('/tickets')}>
             <LifeBuoy className="h-4 w-4 text-accent-rose" /> {t.ticketsTitle}
           </CommandItem>
           <CommandItem onSelect={() => go('/team')}>
-            <Users className="h-4 w-4 text-accent-violet" /> My team
+            <Users className="h-4 w-4 text-accent-violet" /> {t.cmdMyTeam}
           </CommandItem>
           <CommandItem onSelect={() => go('/notifications')}>
-            <Bell className="h-4 w-4 text-accent-cyan" /> Notifications
+            <Bell className="h-4 w-4 text-accent-cyan" /> {t.notificationsPageTitle}
+          </CommandItem>
+          <CommandItem onSelect={() => go(rulesHref(locale))}>
+            <ScrollText className="h-4 w-4 text-accent-amber" /> {t.rulesLinkLabel}
           </CommandItem>
           {isStaff(user?.role) ? (
             <CommandItem onSelect={() => go('/incidents')}>
-              <AlertOctagon className="h-4 w-4 text-accent-rose" /> Incidents
+              <AlertOctagon className="h-4 w-4 text-accent-rose" /> {t.incidentsPageTitle}
             </CommandItem>
           ) : null}
           {user?.permissions.includes(Permission.ADMIN_DASHBOARD) ? (
             <CommandItem onSelect={() => go('/admin')}>
-              <ShieldAlert className="h-4 w-4 text-accent-rose" /> Admin dashboard
+              <ShieldAlert className="h-4 w-4 text-accent-rose" /> {t.adminPanelTitle}
             </CommandItem>
           ) : null}
         </CommandGroup>
 
         {channelsData?.channels?.length ? (
-          <CommandGroup heading="Channels">
+          <CommandGroup heading={t.cmdGroupChannels}>
             {channelsData.channels.slice(0, 12).map((c) => (
               <CommandItem
                 key={c.id}
@@ -132,7 +137,7 @@ export function CommandPalette() {
         ) : null}
 
         {challenges?.length ? (
-          <CommandGroup heading="Challenges">
+          <CommandGroup heading={t.challengesTitle}>
             {challenges.slice(0, 8).map((c) => (
               <CommandItem
                 key={c.id}

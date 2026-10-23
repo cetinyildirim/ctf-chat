@@ -1,12 +1,19 @@
-import { teamBadgeDataUrl } from '@/lib/branding/logo-badges';
+type TeamLite = { id: string; name: string; color: string; logoUrl?: string | null };
 
-type TeamLite = { id: string; name: string; color: string };
-
-/** Profile photo, else team-name badge on team color when the user has a team. */
+/**
+ * Personal avatar first, then an uploaded team logo. Without either the Avatar
+ * fallback (initials on the team color) is used: the generated team badge is a
+ * labelled square that becomes unreadable once cropped into a small circle.
+ */
 export function resolveUserAvatarSrc(
   user: { avatarUrl?: string | null; team?: TeamLite | null },
 ): string | null | undefined {
   if (user.avatarUrl) return user.avatarUrl;
-  if (user.team) return teamBadgeDataUrl(user.team.name, user.team.id, user.team.color);
+  if (user.team?.logoUrl) return user.team.logoUrl;
   return null;
+}
+
+/** Corner team badge only adds information when the main image is a personal avatar. */
+export function showsTeamCornerBadge(user: { avatarUrl?: string | null; team?: TeamLite | null }): boolean {
+  return !!user.avatarUrl && !!user.team;
 }

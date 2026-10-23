@@ -107,15 +107,15 @@ const spectator: Permission[] = [
   // their own support tickets for infra / score problems.
   Permission.TICKET_CREATE,
   Permission.TICKET_VIEW_OWN,
+  // Self-registered users must be able to chat and DM; per-channel posting is
+  // still governed by server roles (`sendMessage`), channel locks and mutes.
+  Permission.MESSAGE_SEND,
+  Permission.MESSAGE_EDIT_OWN,
+  Permission.MESSAGE_DELETE_OWN,
 ];
 
 const teamMember: Permission[] = [
   ...spectator,
-  Permission.MESSAGE_SEND,
-  Permission.MESSAGE_EDIT_OWN,
-  Permission.MESSAGE_DELETE_OWN,
-  Permission.TICKET_CREATE,
-  Permission.TICKET_VIEW_OWN,
   // Competitors see their own team's tickets; the team is always resolved from
   // the competition membership, never from the request.
   Permission.TICKET_VIEW_TEAM,

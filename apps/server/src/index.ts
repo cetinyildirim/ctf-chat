@@ -7,6 +7,8 @@ import { prisma } from './prisma.js';
 import { warmPlatformSettingsCache } from './lib/platform-settings.js';
 import { ensureDefaultChatServer, backfillIncidentServerIds } from './lib/migrate-default-server.js';
 import { publishDueAnnouncements } from './lib/announcement-publish.js';
+import { startBackupScheduler } from './lib/backup.js';
+import { startBanExpiryJob } from './lib/moderation-notify.js';
 
 async function main() {
   await warmPlatformSettingsCache().catch(() => undefined);
@@ -35,6 +37,8 @@ async function main() {
   setInterval(() => {
     void publishDueAnnouncements().catch((err) => logger.warn({ err }, 'announcement scheduler failed'));
   }, 30_000).unref?.();
+  startBackupScheduler();
+  startBanExpiryJob();
 
   httpServer.listen(env.PORT, () => {
     logger.info(`SYDT API listening on http://localhost:${env.PORT}`);

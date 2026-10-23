@@ -12,6 +12,7 @@ import { useUIStore } from '@/store/ui';
 import { useI18n } from '@/components/providers/LocaleProvider';
 import { usePlatformBranding } from '@/components/providers/PlatformBrandingProvider';
 import { SurveyGate } from '@/components/surveys/SurveyGate';
+import { AnnouncementGate } from '@/components/announcements/AnnouncementGate';
 import { UserProfileProvider } from '@/components/users/UserProfileProvider';
 import { ServerBootstrap } from '@/components/servers/ServerBootstrap';
 import { PasswordChangeGate } from '@/components/auth/PasswordChangeGate';
@@ -25,8 +26,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
   const branding = usePlatformBranding();
 
-  if (!ready) return <LoadingScreen />;
-  if (!user) return null; // bootstrapper handles redirect
+  if (!ready || !user) return <LoadingScreen />;
 
   const hideSidebar = pathname?.startsWith('/scoreboard');
 
@@ -36,7 +36,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         'flex h-svh min-h-0 w-screen flex-col overflow-hidden bg-bg lg:grid lg:h-screen lg:min-h-0 lg:w-screen lg:grid-rows-[minmax(0,1fr)]',
         hideSidebar
           ? 'lg:grid-cols-[auto_minmax(0,1fr)]'
-          : 'lg:grid-cols-[auto_minmax(0,16rem)_minmax(0,1fr)]',
+          : 'lg:grid-cols-[auto_auto_minmax(0,1fr)]',
       )}
     >
       {!hideSidebar ? (
@@ -64,6 +64,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
       <CommandPalette />
       <SurveyGate />
+      <AnnouncementGate />
       <PasswordChangeGate />
       <UserProfileProvider />
       <ServerBootstrap />

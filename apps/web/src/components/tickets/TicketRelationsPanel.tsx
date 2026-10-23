@@ -85,7 +85,7 @@ export function TicketRelationsPanel({
             {canManage ? (
               <button
                 type="button"
-                aria-label="remove relation"
+                aria-label={t.ticketRelationRemove}
                 className="text-muted-fg hover:text-accent-rose"
                 onClick={() => removeMutation.mutate(relation.id)}
               >

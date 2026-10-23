@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { Send, Reply, X, Smile, Paperclip } from 'lucide-react';
 import type { Message, PublicUser } from '@sydt/shared';
-import { MAX_MESSAGE_LENGTH } from '@sydt/shared';
+import { MAX_MESSAGE_LENGTH, TYPING_TTL_MS } from '@sydt/shared';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -17,6 +17,7 @@ import { MessageComposerHelp } from '@/components/chat/MessageComposerHelp';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api/axios';
 import { useI18n } from '@/components/providers/LocaleProvider';
+import { formatModerationUntil, withReason } from '@/lib/moderation/messages';
 import {
   MentionAutocomplete,
   getMentionRange,
@@ -43,6 +44,8 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
   const ref = React.useRef<HTMLTextAreaElement | null>(null);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
   const typingTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingActiveRef = React.useRef(false);
+  const typingSentAtRef = React.useRef(0);
 
   React.useEffect(() => {
     ref.current?.focus();
@@ -51,6 +54,7 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
   React.useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingActiveRef.current = false;
       getSocket().emit('typing:stop', { channelId });
     };
   }, [channelId]);
@@ -129,9 +133,18 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
       setValue('');
       setPendingFiles([]);
       onClearReply();
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingActiveRef.current = false;
       getSocket().emit('typing:stop', { channelId });
     } catch (err) {
-      toast.error(unwrapApiError(err).message);
+      const { code, message, details } = unwrapApiError(err);
+      const until = (details as { until?: string } | undefined)?.until;
+      if (code === 'USER_MUTED' && until) {
+        const reason = (details as { reason?: string | null }).reason;
+        toast.error(withReason(t.mutedSendError.replace('{{until}}', formatModerationUntil(until, t)), reason, t));
+      } else {
+        toast.error(message);
+      }
     } finally {
       setSending(false);
       requestAnimationFrame(() => ref.current?.focus());
@@ -139,6 +152,7 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (mentionRange && mentionUsers.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -175,12 +189,20 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
     syncMention(next, e.target.selectionStart ?? next.length);
     const socket = getSocket();
     if (next.length > 0) {
-      socket.emit('typing:start', { channelId });
+      const now = Date.now();
+      // Re-announce well inside TYPING_TTL_MS so peers' local expiry never fires mid-typing.
+      if (!typingActiveRef.current || now - typingSentAtRef.current > TYPING_TTL_MS / 2) {
+        typingActiveRef.current = true;
+        typingSentAtRef.current = now;
+        socket.emit('typing:start', { channelId });
+      }
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
+        typingActiveRef.current = false;
         socket.emit('typing:stop', { channelId });
       }, 3500);
-    } else {
+    } else if (typingActiveRef.current) {
+      typingActiveRef.current = false;
       socket.emit('typing:stop', { channelId });
     }
   };
@@ -192,7 +214,7 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
 
   return (
     <div className="relative z-20 border-t border-white/5 bg-bg-deep/40 px-4 py-3 backdrop-blur-md">
-      <MessageComposerHelp draft={value} />
+      <MessageComposerHelp />
       {replyTo ? (
         <div className="mb-2 flex items-center gap-2 rounded-md border-l-2 border-accent-violet/60 bg-accent-violet/5 px-2 py-1 text-xs text-fg-subtle">
           <Reply className="h-3 w-3 text-accent-violet" />
@@ -219,7 +241,7 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
                 type="button"
                 className="text-muted-fg hover:text-fg"
                 onClick={() => removeFile(i)}
-                aria-label="Remove file"
+                aria-label={t.composerRemoveFile}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -239,7 +261,7 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
       />
       <div
         className={cn(
-          'relative flex items-end gap-2 rounded-xl border border-white/10 bg-bg-elev/60 p-2 transition-colors focus-within:border-accent-cyan/40 focus-within:shadow-glow-cyan/30',
+          'relative flex items-end gap-2 rounded-xl border border-white/10 bg-bg-elev/60 p-2 focus-within:border-accent-cyan/40',
           disabled && 'opacity-60',
         )}
         onDragOver={(e) => {
@@ -264,7 +286,7 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
         <button
           type="button"
           className="grid h-9 w-9 place-items-center rounded-md text-fg-subtle hover:bg-white/8 hover:text-fg disabled:pointer-events-none disabled:opacity-40"
-          title="Attach files"
+          title={t.composerAttachFiles}
           disabled={disabled}
           onClick={() => fileRef.current?.click()}
         >
@@ -282,8 +304,8 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
               ? disabledReason ?? t.composerReadOnly
               : t.composerPlaceholder
           }
-          className="max-h-40 min-h-[40px] resize-none border-0 bg-transparent p-1 focus-visible:ring-0"
-          rows={Math.min(6, Math.max(1, value.split('\n').length))}
+          className="h-10 max-h-10 min-h-10 resize-none overflow-y-auto border-0 bg-transparent p-1 leading-5 focus-visible:ring-0"
+          rows={1}
           disabled={disabled}
           aria-busy={sending}
         />
@@ -317,7 +339,7 @@ export function MessageComposer({ channelId, replyTo, onClearReply, disabled, di
           variant="primary"
           onClick={send}
           disabled={!canSend || sending || disabled}
-          title="Send"
+          title={t.composerSend}
         >
           <Send className="h-4 w-4" />
         </Button>

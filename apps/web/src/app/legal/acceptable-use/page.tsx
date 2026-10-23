@@ -2,8 +2,8 @@ import { LegalDocument } from '@/components/legal/LegalDocument';
 import { aupEnFooter, aupEnIntro, aupEnMeta, aupEnSections } from '@/content/legal/aup-en';
 
 export const metadata = {
-  title: 'Acceptable Use Policy · SYDT',
-  description: 'SYDT Chat acceptable use and community guidelines.',
+  title: 'Rules of Use · SYDT Chat',
+  description: 'SYDT Chat rules of use, competition integrity and moderation principles.',
 };
 
 export default function AcceptableUsePolicyEnPage() {
@@ -16,6 +16,7 @@ export default function AcceptableUsePolicyEnPage() {
       footer={aupEnFooter}
       backHref="/"
       backLabel="Back to home"
+      tocLabel="Contents"
     />
   );
 }

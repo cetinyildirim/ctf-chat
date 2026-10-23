@@ -25,7 +25,7 @@ export async function ensureDirectChannel(actorId: string, peerId: string) {
   if (!actor || !peer) throw BadRequest('User not found');
 
   if (!(await canUsersDirectMessageOnSharedTeam(actorId, peerId))) {
-    throw BadRequest('Direct messages are limited to your team and staff');
+    throw BadRequest('Direct messages require a shared server');
   }
 
   const candidates = await prisma.channel.findMany({

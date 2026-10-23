@@ -18,8 +18,8 @@ export function ServerSettingsCategoriesPanel({ serverId }: { serverId: string }
   const { t } = useI18n();
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.channels(serverId),
-    queryFn: () => channelsApi.list(serverId),
+    queryKey: queryKeys.channelsSettings(serverId),
+    queryFn: () => channelsApi.list(serverId, { includeEmpty: true }),
   });
 
   const [catName, setCatName] = React.useState('');
@@ -29,7 +29,10 @@ export function ServerSettingsCategoriesPanel({ serverId }: { serverId: string }
   const [catEditStaff, setCatEditStaff] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
-  const invalidate = () => void qc.invalidateQueries({ queryKey: queryKeys.channelsAll });
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: queryKeys.channels(serverId) });
+    void qc.invalidateQueries({ queryKey: queryKeys.channelsSettings(serverId) });
+  };
 
   const sortedCategories = [...(data?.categories ?? [])].sort(
     (a, b) => a.position - b.position || a.name.localeCompare(b.name),

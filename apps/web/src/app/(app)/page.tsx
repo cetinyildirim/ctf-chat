@@ -19,7 +19,7 @@ export default function Home() {
     queryFn: serversApi.list,
   });
 
-  const { data, isLoading: channelsLoading } = useQuery({
+  const { data } = useQuery({
     queryKey: queryKeys.channels(activeServerId ?? ''),
     queryFn: () => channelsApi.list(activeServerId!),
     enabled: !!activeServerId,
@@ -39,9 +39,7 @@ export default function Home() {
 
   if (!servers.length) return <NoServerOnboarding />;
 
-  if (!activeServerId || channelsLoading || !data) {
-    return <LoadingScreen label={t.ticketsLoading} />;
-  }
-
-  return null;
+  // Keep the loading UI visible while channels resolve and while we redirect into a channel.
+  // Returning null here produced a blank first paint on `/`.
+  return <LoadingScreen label={t.ticketsLoading} />;
 }

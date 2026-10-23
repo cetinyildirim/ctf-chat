@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import { BrandLogo } from '@/components/brand/BrandLogo';
 
 export type LegalSection = {
   id: string;
@@ -17,6 +18,7 @@ export function LegalDocument({
   footer,
   backHref = '/',
   backLabel = 'Geri dön',
+  tocLabel,
 }: {
   title: string;
   updated: string;
@@ -25,6 +27,7 @@ export function LegalDocument({
   footer?: string[];
   backHref?: string;
   backLabel?: string;
+  tocLabel?: string;
 }) {
   return (
     <div className="min-h-screen bg-[#0c0d10] text-fg">
@@ -38,9 +41,7 @@ export function LegalDocument({
             <ArrowLeft className="h-4 w-4" />
             {backLabel}
           </Link>
-          <div className="font-mono text-sm font-semibold tracking-wide">
-            SYDT<span className="text-accent-cyan">.</span>
-          </div>
+          <BrandLogo className="ml-auto gap-2 [&>span:last-child]:text-base" markClassName="h-8 w-10" />
         </div>
       </header>
 
@@ -53,6 +54,21 @@ export function LegalDocument({
             <p key={p.slice(0, 40)}>{p}</p>
           ))}
         </div>
+
+        {tocLabel ? (
+          <nav className="mt-10 rounded-xl border border-white/8 bg-white/[0.03] p-5" aria-label={tocLabel}>
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-fg">{tocLabel}</div>
+            <ol className="mt-3 grid gap-1.5 text-sm sm:grid-cols-2">
+              {sections.map((sec) => (
+                <li key={sec.id}>
+                  <a href={`#${sec.id}`} className="text-fg-subtle transition-colors hover:text-accent-cyan">
+                    {sec.title}
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </nav>
+        ) : null}
 
         <div className="mt-12 space-y-10">
           {sections.map((sec) => (

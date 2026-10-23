@@ -56,9 +56,9 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     const payload = verifyAccessToken(token);
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, username: true, role: true, platformRole: true, teamId: true, isBanned: true },
+      select: { id: true, username: true, role: true, platformRole: true, teamId: true, isBanned: true, disabledAt: true },
     });
-    if (!user || user.isBanned) {
+    if (!user || user.isBanned || user.disabledAt) {
       next(Unauthorized('Invalid or expired session'));
       return;
     }
@@ -82,9 +82,9 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
       const payload = verifyAccessToken(token);
       const user = await prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { id: true, username: true, role: true, platformRole: true, teamId: true, isBanned: true },
+        select: { id: true, username: true, role: true, platformRole: true, teamId: true, isBanned: true, disabledAt: true },
       });
-      if (user && !user.isBanned) {
+      if (user && !user.isBanned && !user.disabledAt) {
         req.user = {
           id: user.id,
           username: user.username,

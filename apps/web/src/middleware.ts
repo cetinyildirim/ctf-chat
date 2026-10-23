@@ -6,7 +6,7 @@ import {
 } from '@/lib/auth/edge-session';
 
 const PUBLIC_PATHS = ['/login', '/register'];
-const ALWAYS_ALLOW_PREFIXES = ['/api', '/_next', '/socket.io', '/favicon', '/icon'];
+const ALWAYS_ALLOW_PREFIXES = ['/api', '/_next', '/socket.io', '/favicon', '/icon', '/brand-assets/'];
 
 function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.includes(pathname)) return true;

@@ -9,7 +9,7 @@ import { prisma } from './prisma.js';
 import { type SydtIO, setIO } from './realtime/io.js';
 import { room } from './realtime/rooms.js';
 import { heartbeat, snapshot, trackConnect, trackDisconnect } from './realtime/presence.js';
-import { listTyping, startTyping, stopTyping } from './realtime/typing.js';
+import { listTyping, startTyping, stopAllTyping, stopTyping } from './realtime/typing.js';
 import { isStaff, type Role } from '@sydt/shared';
 import { loadChannel, assertCanAccessChannel } from './modules/messages/access.js';
 import { permissionRoleOf } from './lib/user-role.js';
@@ -36,9 +36,9 @@ export function createSocketServer(httpServer: HttpServer): SydtIO {
         const payload = verifyAccessToken(token);
         const user = await prisma.user.findUnique({
           where: { id: payload.sub },
-          select: { id: true, username: true, role: true, platformRole: true, teamId: true, isBanned: true },
+          select: { id: true, username: true, role: true, platformRole: true, teamId: true, isBanned: true, disabledAt: true },
         });
-        if (!user || user.isBanned) return next(new Error('unauthorized'));
+        if (!user || user.isBanned || user.disabledAt) return next(new Error('unauthorized'));
 
         socket.data.userId = user.id;
         socket.data.username = user.username;
@@ -110,20 +110,18 @@ export function createSocketServer(httpServer: HttpServer): SydtIO {
       joinedChannels.delete(channelId);
     });
 
+    // Clients refresh typing:start while typing and expire it locally, so every
+    // start/stop is forwarded even if the server-side TTL entry already lapsed.
     socket.on('typing:start', ({ channelId }) => {
       if (!channelId || !joinedChannels.has(channelId)) return;
-      const newlyTyping = startTyping(channelId, userId);
-      if (newlyTyping) {
-        socket.to(room.channel(channelId)).emit('typing:start', { channelId, userId });
-      }
+      startTyping(channelId, userId);
+      socket.to(room.channel(channelId)).emit('typing:start', { channelId, userId });
     });
 
     socket.on('typing:stop', ({ channelId }) => {
       if (!channelId || !joinedChannels.has(channelId)) return;
-      const removed = stopTyping(channelId, userId);
-      if (removed) {
-        socket.to(room.channel(channelId)).emit('typing:stop', { channelId, userId });
-      }
+      stopTyping(channelId, userId);
+      socket.to(room.channel(channelId)).emit('typing:stop', { channelId, userId });
     });
 
     socket.on('presence:heartbeat', ({ status }) => {
@@ -134,6 +132,9 @@ export function createSocketServer(httpServer: HttpServer): SydtIO {
     });
 
     socket.on('disconnect', () => {
+      for (const channelId of stopAllTyping(userId)) {
+        io.to(room.channel(channelId)).emit('typing:stop', { channelId, userId });
+      }
       const change = trackDisconnect(userId, socket.id);
       if (change) io.to(room.global()).emit('presence:update', { presences: [change] });
     });

@@ -91,7 +91,10 @@ function incidentRooms(incident: Incident): string[] {
 export function emitAnnouncement(announcement: Announcement, serverId?: string): void {
   if (serverId) {
     getIO().to(room.server(serverId)).emit('announcement:new', { announcement });
+    return;
   }
+  // Platform-wide announcements (admin Comms) — every connected user is in `global`.
+  getIO().to(room.global()).emit('announcement:new', { announcement });
 }
 
 export function emitChannelCreated(channel: Channel): void {
@@ -113,6 +116,18 @@ export function emitChannelsRefreshToUsers(userIds: string[]): void {
   for (const userId of [...new Set(userIds)]) {
     io.to(room.user(userId)).emit('channels:refresh');
   }
+}
+
+export function emitDirectMessage(args: {
+  userId: string;
+  channelId: string;
+  messageId: string;
+  fromUserId: string;
+  fromDisplayName: string;
+  preview: string;
+}): void {
+  const { userId, ...payload } = args;
+  getIO().to(room.user(userId)).emit('dm:new', payload);
 }
 
 export function emitMention(args: {

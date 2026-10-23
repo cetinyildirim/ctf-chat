@@ -5,6 +5,7 @@ import { Trophy } from 'lucide-react';
 import type { CtfdScoreboardEntryDto } from '@sydt/shared';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
+import { useI18n } from '@/components/providers/LocaleProvider';
 
 interface Props {
   entry: CtfdScoreboardEntryDto;
@@ -18,6 +19,7 @@ const medalByRank: Record<number, string> = {
 };
 
 export function CtfdRankRow({ entry, topScore }: Props) {
+  const { t } = useI18n();
   const color = entry.localTeam?.color ?? 'hsl(var(--accent-cyan))';
   const pct = topScore > 0 ? Math.max(2, (entry.score / topScore) * 100) : 0;
 
@@ -63,14 +65,14 @@ export function CtfdRankRow({ entry, topScore }: Props) {
         </div>
         {entry.solves != null ? (
           <div className="mt-1 text-[10px] text-muted-fg">
-            {entry.solves} solve{entry.solves === 1 ? '' : 's'}
+            {(entry.solves === 1 ? t.solveCountOne : t.solveCountMany).replace('{{count}}', String(entry.solves))}
           </div>
         ) : null}
       </div>
 
       <div className="text-right font-mono tabular-nums">
-        <div className="text-base font-bold text-fg">{entry.score.toLocaleString()}</div>
-        <div className="text-[10px] uppercase tracking-wider text-muted-fg">points</div>
+        <div className="text-base font-bold text-fg">{entry.score.toLocaleString(t.dateLocale)}</div>
+        <div className="text-[10px] uppercase tracking-wider text-muted-fg">{t.pointsLabel}</div>
       </div>
     </motion.div>
   );

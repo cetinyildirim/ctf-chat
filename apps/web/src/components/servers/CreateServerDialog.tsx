@@ -14,6 +14,7 @@ import { queryKeys } from '@/lib/query/client';
 import { unwrapApiError } from '@/lib/api/axios';
 import { toast } from 'sonner';
 import { useServerStore } from '@/store/server';
+import { rulesHref } from '@/lib/legal';
 
 function slugFromName(name: string): string {
   const base = name
@@ -34,8 +35,7 @@ export function CreateServerDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { t, locale } = useI18n();
-  const policyHref =
-    locale === 'en' ? '/legal/acceptable-use' : '/legal/kabul-edilebilir-kullanim';
+  const policyHref = rulesHref(locale);
   const qc = useQueryClient();
   const setActiveServerId = useServerStore((s) => s.setActiveServerId);
   const [name, setName] = React.useState('');
@@ -69,7 +69,7 @@ export function CreateServerDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[91] w-[min(96vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-white/10 bg-[#1e1f22] p-6 shadow-2xl outline-none">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[91] w-[min(96vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-bg p-6 shadow-2xl outline-none">
           <Dialog.Title className="text-xl font-bold text-fg">{t.serverCreateTitle}</Dialog.Title>
           <p className="mt-2 text-sm leading-relaxed text-fg-subtle">
             {t.serverCreateLead}{' '}
@@ -91,7 +91,7 @@ export function CreateServerDialog({
                 {t.serverCreateNameLabel}
               </Label>
               <Input
-                className="mt-1.5 bg-[#111214]"
+                className="mt-1.5"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={80}

@@ -35,7 +35,10 @@ export interface SessionUser extends PublicUser {
   theme: 'light' | 'dark';
   /** Default channel notify when pref is DEFAULT */
   defaultNotifyMode: 'ALL' | 'MENTIONS_ONLY' | 'NONE';
-  /** Server IDs where this user must change password before continuing */
+  /**
+   * Server IDs where this user must change password before continuing.
+   * Contains `PLATFORM_PASSWORD_RESET_ID` after an admin password reset.
+   */
   mustChangePasswordServerIds: string[];
 }
 
@@ -465,6 +468,7 @@ export interface Announcement {
   channelId?: string | null;
   /** Set when the announcement was raised from a ticket. */
   sourceTicketId?: string | null;
+  requireAck?: boolean;
 }
 
 export interface ServerIntegrations {

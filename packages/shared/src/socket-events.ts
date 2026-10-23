@@ -48,6 +48,9 @@ export interface ServerToClientEvents {
 
   'channels:refresh': () => void;
 
+  /** The user's server memberships changed (added/removed by an admin). */
+  'servers:refresh': () => void;
+
   'mention:new': (payload: {
     messageId: string;
     channelId: string;
@@ -55,7 +58,19 @@ export interface ServerToClientEvents {
     preview: string;
   }) => void;
 
+  /** New direct message for the recipient (sent to their user room, not the channel room). */
+  'dm:new': (payload: {
+    channelId: string;
+    messageId: string;
+    fromUserId: string;
+    fromDisplayName: string;
+    preview: string;
+  }) => void;
+
   'system:notice': (payload: { kind: 'INFO' | 'WARN' | 'ERROR'; message: string }) => void;
+
+  /** Sent to a user's own room right before their sockets are dropped for a platform ban. */
+  'moderation:suspended': (payload: { until: string | null; reason: string | null }) => void;
 }
 
 /**

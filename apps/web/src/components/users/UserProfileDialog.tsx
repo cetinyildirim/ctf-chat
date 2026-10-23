@@ -25,6 +25,7 @@ import { resolveUserAvatarSrc } from '@/lib/branding/user-avatar';
 import { usersApi, friendsApi, directApi, reportsApi } from '@/lib/api/endpoints';
 import { queryKeys } from '@/lib/query/client';
 import { unwrapApiError } from '@/lib/api/axios';
+import { directConversationHref } from '@/lib/chat/viewing';
 import { useUserProfileStore } from '@/store/userProfile';
 import { useAuthStore } from '@/store/auth';
 import { useLivePresence } from '@/lib/presence/use-live-presence';
@@ -104,7 +105,7 @@ export function UserProfileDialog() {
     mutationFn: (peerId: string) => directApi.open(peerId),
     onSuccess: (data) => {
       close();
-      router.push(`/channels/${data.channelId ?? data.channel.id}`);
+      router.push(directConversationHref(data.channelId ?? data.channel.id));
     },
     onError: (err) => toast.error(unwrapApiError(err).message),
   });
@@ -160,7 +161,7 @@ export function UserProfileDialog() {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[85] bg-black/65 backdrop-blur-sm" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-[86] flex max-h-[min(92vh,36rem)] w-[min(96vw,26rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#1a1b1e] shadow-2xl outline-none"
+          className="fixed left-1/2 top-1/2 z-[86] flex max-h-[min(92vh,36rem)] w-[min(96vw,26rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-bg shadow-2xl outline-none"
           aria-describedby={undefined}
         >
           <Dialog.Title className="sr-only">{user?.displayName ?? t.userCardTitle}</Dialog.Title>
@@ -261,17 +262,16 @@ export function UserProfileDialog() {
                             <UserPlus className="h-4 w-4" />
                           )}
                         </button>
-                      ) : (
-                        <button
-                          type="button"
-                          title={t.userCardMessage}
-                          disabled={dmMut.isPending}
-                          onClick={() => dmMut.mutate(card.user.id)}
-                          className="rounded-lg bg-black/25 p-2 text-white transition hover:bg-black/40"
-                        >
-                          <MessageCircle className="h-4 w-4" />
-                        </button>
-                      )}
+                      ) : null}
+                      <button
+                        type="button"
+                        title={t.userCardMessage}
+                        disabled={dmMut.isPending}
+                        onClick={() => dmMut.mutate(card.user.id)}
+                        className="rounded-lg bg-black/25 p-2 text-white transition hover:bg-black/40 disabled:opacity-50"
+                      >
+                        <MessageCircle className="h-4 w-4" />
+                      </button>
                       <button
                         type="button"
                         title={t.userCardReport}
@@ -293,7 +293,7 @@ export function UserProfileDialog() {
                   </Dialog.Close>
                 </div>
 
-                <div className="flex gap-4 pr-20">
+                <div className="flex gap-4 pt-9">
                   <div className="relative shrink-0">
                     <Avatar
                       name={user.displayName}
@@ -302,7 +302,7 @@ export function UserProfileDialog() {
                       teamColor={teamColor}
                       className="ring-4 ring-black/20"
                     />
-                    <span className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-[#1a1b1e]">
+                    <span className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-bg">
                       <StatusDot status={presence} />
                     </span>
                   </div>
@@ -346,7 +346,7 @@ export function UserProfileDialog() {
                 ))}
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto bg-[#232428]">
+              <div className="min-h-0 flex-1 overflow-y-auto bg-bg-deep">
                 {tab === 'profile' ? (
                   card.bio ? (
                     <div className="p-4 text-sm leading-relaxed text-fg-subtle">{card.bio}</div>

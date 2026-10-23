@@ -77,13 +77,13 @@ export function EditServerMemberDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[91] w-[min(96vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-white/10 bg-[#1e1f22] shadow-2xl outline-none">
-          <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[91] w-[min(96vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-bg shadow-2xl outline-none">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <Dialog.Title className="text-sm font-semibold text-fg">
               {t.serverEditIdentityTitle.replace('{{server}}', server.name)}
             </Dialog.Title>
             <Dialog.Close asChild>
-              <button type="button" className="rounded-md p-1 text-muted-fg hover:bg-white/10" aria-label={t.userCardClose}>
+              <button type="button" className="rounded-md p-1 text-muted-fg hover:bg-muted hover:text-fg" aria-label={t.userCardClose}>
                 <X className="h-4 w-4" />
               </button>
             </Dialog.Close>
@@ -136,7 +136,7 @@ export function EditServerMemberDialog({
 
               <div>
                 <Label className="text-[10px] uppercase tracking-wider text-muted-fg">{t.serverPreviewLabel}</Label>
-                <div className="mt-2 rounded-lg bg-[#2b2d31] px-3 py-2">
+                <div className="mt-2 rounded-lg border border-border bg-panel px-3 py-2">
                   <div className="flex gap-3">
                     <Avatar name={displayName} src={avatarSrc} size="md" />
                     <div>

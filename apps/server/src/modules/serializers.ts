@@ -357,6 +357,7 @@ export function serializeAnnouncement(
     serverId: (a.serverId as string | null) ?? null,
     channelId: (a.channelId as string | null) ?? null,
     sourceTicketId: (a.sourceTicketId as string | null) ?? null,
+    requireAck: a.requireAck === true,
   };
 }
 

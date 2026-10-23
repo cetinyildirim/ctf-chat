@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart3, ClipboardList, Plus, Trash2 } from 'lucide-react';
+import { BarChart3, ClipboardList, FileText, Plus, Trash2 } from 'lucide-react';
+import { SurveyReportDialog } from '@/components/admin/SurveyReportDialog';
 import {
   ResponsiveContainer,
   BarChart,
@@ -327,11 +328,21 @@ function SurveyStatsPanel({
   loading: boolean;
   t: import('@/i18n/dict').Dict;
 }) {
+  const [reportOpen, setReportOpen] = React.useState(false);
   if (loading) return <div className="mt-4 text-sm text-muted-fg">{t.loading}</div>;
   if (!stats) return null;
 
   return (
     <div className="mt-4 space-y-4 border-t border-border/40 pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-fg-subtle">
+          {stats.totalResponses} / {stats.eligibleUsers} · %{stats.responseRate}
+        </p>
+        <Button type="button" size="sm" className="gap-1.5" onClick={() => setReportOpen(true)}>
+          <FileText className="h-4 w-4" />
+          {t.surveyReportCreate}
+        </Button>
+      </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <StatCard label={t.surveyResponses} value={String(stats.totalResponses)} />
         <StatCard label={t.surveyResponseRate} value={`${stats.responseRate}%`} />
@@ -345,22 +356,37 @@ function SurveyStatsPanel({
               {q.textAnswers.length === 0 ? (
                 <p className="text-sm text-muted-fg">{t.surveyNoData}</p>
               ) : (
-                <ul className="max-h-40 space-y-1 overflow-y-auto text-[15px] text-fg-subtle">
+                <>
+                <p className="mb-2 text-xs text-muted-fg">
+                  {q.textAnswers.length} {t.surveyResponses.toLowerCase()}
+                </p>
+                <ul className="max-h-80 space-y-1 overflow-y-auto text-[15px] text-fg-subtle">
                   {q.textAnswers.map((a, i) => (
-                    <li key={i} className="rounded bg-white/[0.03] px-2 py-1">
+                    <li key={i} className="rounded bg-white/[0.03] px-2 py-1.5">
                       {a}
                     </li>
                   ))}
                 </ul>
+                </>
               )}
             </div>
           );
         }
+        const selectionTotal = q.options.reduce((sum, o) => sum + o.count, 0);
+        const ranked = [...q.options].sort((a, b) => b.count - a.count);
+        const top = ranked[0];
         const barData = q.options.map((o) => ({ name: o.text, count: o.count }));
         const pieData = q.options.filter((o) => o.count > 0).map((o) => ({ name: o.text, value: o.count }));
         return (
           <div key={q.questionId} className="rounded-lg border border-border/50 p-4">
             <p className="mb-3 text-sm font-medium text-fg">{q.text}</p>
+            {top && top.count > 0 ? (
+              <p className="mb-3 text-sm text-fg-subtle">
+                {t.surveyTopChoice}: <span className="font-medium text-fg">{top.text}</span>
+                {' · '}
+                {top.count} {t.surveySelections} (%{selectionTotal ? Math.round((top.count / selectionTotal) * 1000) / 10 : 0})
+              </p>
+            ) : null}
             {barData.every((d) => d.count === 0) ? (
               <p className="text-sm text-muted-fg">{t.surveyNoData}</p>
             ) : (
@@ -398,9 +424,30 @@ function SurveyStatsPanel({
                 ) : null}
               </div>
             )}
+            {selectionTotal > 0 ? (
+              <ul className="mt-3 space-y-2">
+                {ranked.map((o) => {
+                  const pct = Math.round((o.count / selectionTotal) * 1000) / 10;
+                  return (
+                    <li key={o.optionId}>
+                      <div className="mb-1 flex items-baseline justify-between gap-3 text-[13px]">
+                        <span className="text-fg">{o.text}</span>
+                        <span className="shrink-0 font-mono text-muted-fg">
+                          {o.count} · %{pct}
+                        </span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                        <div className="h-full rounded-full bg-accent-cyan" style={{ width: `${pct}%` }} />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
           </div>
         );
       })}
+      <SurveyReportDialog stats={reportOpen ? stats : null} onClose={() => setReportOpen(false)} />
     </div>
   );
 }

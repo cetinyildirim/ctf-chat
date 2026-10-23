@@ -88,7 +88,7 @@ export default function IncidentDetailPage() {
       void qc.invalidateQueries({ queryKey: ['incidents'] });
     },
     onError: (err: unknown) => {
-      toast.error(unwrapApiError(err).message ?? 'Error');
+      toast.error(unwrapApiError(err).message ?? t.commonError);
     },
   });
 

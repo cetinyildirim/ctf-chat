@@ -23,7 +23,7 @@ export function Switch({ id, checked, onCheckedChange, disabled, className }: Sw
       className={cn(
         'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan/50 focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
-        checked ? 'border-accent-cyan/50 bg-accent-cyan' : 'border-white/15 bg-white/10',
+        checked ? 'border-accent-cyan/50 bg-accent-cyan' : 'border-border bg-muted',
         disabled && 'cursor-not-allowed opacity-50',
         className,
       )}

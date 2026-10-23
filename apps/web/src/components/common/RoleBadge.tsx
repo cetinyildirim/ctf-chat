@@ -30,7 +30,7 @@ const iconByRole: Record<Role, React.ReactNode> = {
   OBSERVER: <Users className="h-3 w-3" />,
 };
 
-function labelFor(role: Role, t: Dict): string {
+export function roleLabel(role: Role, t: Dict): string {
   const map: Record<Role, keyof Dict> = {
     SUPER_ADMIN: 'roleSuperAdmin',
     COMP_ADMIN: 'roleCompAdmin',
@@ -62,7 +62,7 @@ export function RoleBadge({ role, className, iconOnly }: RoleBadgeProps) {
       )}
     >
       {iconByRole[role]}
-      {!iconOnly && <span>{labelFor(role, t)}</span>}
+      {!iconOnly && <span>{roleLabel(role, t)}</span>}
     </span>
   );
 }

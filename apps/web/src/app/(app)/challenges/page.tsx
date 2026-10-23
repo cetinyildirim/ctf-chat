@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/common/Skeleton';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/components/providers/LocaleProvider';
 
 const CATS = ['WEB', 'PWN', 'REV', 'CRYPTO', 'FORENSICS', 'OSINT', 'MISC'] as const;
 const DIFFS = ['EASY', 'MEDIUM', 'HARD', 'INSANE'] as const;
@@ -36,6 +37,7 @@ const DIFF_COLOR: Record<(typeof DIFFS)[number], string> = {
 };
 
 export default function ChallengesPage() {
+  const { t } = useI18n();
   const [filter, setFilter] = React.useState<{
     category?: string;
     difficulty?: string;
@@ -65,10 +67,10 @@ export default function ChallengesPage() {
         title={
           <div className="flex items-center gap-2">
             <Flag className="h-4 w-4 text-accent-emerald" />
-            <span>Challenges</span>
+            <span>{t.challengesTitle}</span>
           </div>
         }
-        subtitle={`${challenges?.length ?? '—'} released`}
+        subtitle={t.challengesReleased.replace('{{count}}', String(challenges?.length ?? '—'))}
       />
 
       <div className="border-b border-white/5 px-4 py-3">
@@ -76,7 +78,7 @@ export default function ChallengesPage() {
           <div className="relative w-full sm:w-72">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
             <Input
-              placeholder="Search challenges"
+              placeholder={t.challengesSearch}
               value={filter.q ?? ''}
               onChange={(e) => setFilter((f) => ({ ...f, q: e.target.value || undefined }))}
               className="pl-9"
@@ -101,7 +103,7 @@ export default function ChallengesPage() {
 
           <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto">
             <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-muted-fg">
-              Difficulty
+              {t.challengesDifficulty}
             </span>
             {DIFFS.map((d) => (
               <button
@@ -128,9 +130,9 @@ export default function ChallengesPage() {
             className="ml-auto"
           >
             <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="false">Unsolved</TabsTrigger>
-              <TabsTrigger value="true">Solved</TabsTrigger>
+              <TabsTrigger value="all">{t.challengesFilterAll}</TabsTrigger>
+              <TabsTrigger value="false">{t.challengesFilterUnsolved}</TabsTrigger>
+              <TabsTrigger value="true">{t.challengesFilterSolved}</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -144,7 +146,7 @@ export default function ChallengesPage() {
 
           {!isLoading && (!challenges || challenges.length === 0) ? (
             <div className="col-span-full">
-              <EmptyState icon={Flag} title="No challenges match" description="Try clearing filters." />
+              <EmptyState icon={Flag} title={t.challengesEmptyTitle} description={t.challengesEmptyDesc} />
             </div>
           ) : null}
 
@@ -181,13 +183,13 @@ export default function ChallengesPage() {
                     <p className="mt-1 line-clamp-2 text-xs text-fg-subtle">{c.description}</p>
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-muted-fg">
-                    <span className="font-mono">{c.points} pts</span>
-                    <span>{c.solveCount} solve{c.solveCount === 1 ? '' : 's'}</span>
+                    <span className="font-mono">{c.points} {t.pointsShort}</span>
+                    <span>{(c.solveCount === 1 ? t.solveCountOne : t.solveCountMany).replace('{{count}}', String(c.solveCount))}</span>
                   </div>
                   {bloodTeam ? (
                     <div className="inline-flex items-center gap-1 rounded border border-accent-rose/30 bg-accent-rose/10 px-1.5 py-0.5 text-[10px]" style={{ color: bloodTeam.color }}>
                       <Droplet className="h-2.5 w-2.5" />
-                      <span className="font-medium">Blood · {bloodTeam.name}</span>
+                      <span className="font-medium">{t.firstBloodLabel} · {bloodTeam.name}</span>
                     </div>
                   ) : null}
                 </GlassPanel>

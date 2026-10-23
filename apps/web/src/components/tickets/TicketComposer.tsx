@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { localizeMessage } from '@/i18n/api-errors';
 import { schemas } from '@sydt/shared';
 import type { z } from 'zod';
 import {
@@ -120,7 +121,7 @@ export function TicketComposer({ challengeId, trigger }: Props) {
           <div className="space-y-1.5">
             <Label htmlFor="title">{t.ticketFieldTitle}</Label>
             <Input id="title" placeholder={t.ticketTitlePlaceholder} {...register('title')} />
-            {errors.title ? <p className="text-xs text-accent-rose">{errors.title.message}</p> : null}
+            {errors.title ? <p className="text-xs text-accent-rose">{localizeMessage(errors.title.message)}</p> : null}
           </div>
 
           <div className="space-y-1.5">
@@ -172,7 +173,7 @@ export function TicketComposer({ challengeId, trigger }: Props) {
               placeholder={t.ticketDescriptionPlaceholder}
               {...register('body')}
             />
-            {errors.body ? <p className="text-xs text-accent-rose">{errors.body.message}</p> : null}
+            {errors.body ? <p className="text-xs text-accent-rose">{localizeMessage(errors.body.message)}</p> : null}
           </div>
 
           <div className="space-y-1.5">

@@ -8,7 +8,15 @@ import { GlassPanel } from '@/components/common/GlassPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { adminUsersApi, type AdminModerationUser, type MuteHistoryEntry } from '@/lib/api/endpoints';
+import {
+  adminUsersApi,
+  type AdminModerationUser,
+  type ModerationBody,
+  type MuteHistoryEntry,
+} from '@/lib/api/endpoints';
+import { formatModerationDuration } from '@/lib/moderation/messages';
+
+const BAN_DURATIONS = [60, 1440, 4320, 10080, 43200] as const;
 import { unwrapApiError } from '@/lib/api/axios';
 import { useI18n } from '@/components/providers/LocaleProvider';
 import type { Dict } from '@/i18n/dict';
@@ -175,6 +183,8 @@ export function AdminModerationSection() {
   const [q, setQ] = React.useState('');
   const [applied, setApplied] = React.useState('');
   const [muteMinutes, setMuteMinutes] = React.useState('60');
+  const [banMinutes, setBanMinutes] = React.useState<string>('1440');
+  const [reason, setReason] = React.useState('');
   const now = useNowTick(panel === 'muted');
 
   const { data: users = [], isLoading, refetch } = useQuery({
@@ -207,10 +217,7 @@ export function AdminModerationSection() {
   const muted = mutedRaw.filter((u) => u.mutedUntil && new Date(u.mutedUntil).getTime() > now);
 
   const modMut = useMutation({
-    mutationFn: (args: {
-      id: string;
-      body: { isBanned?: boolean; mutedUntil?: string | null; muteMinutes?: number };
-    }) => adminUsersApi.setModeration(args.id, args.body),
+    mutationFn: (args: { id: string; body: ModerationBody }) => adminUsersApi.setModeration(args.id, args.body),
     onSuccess: () => {
       toast.success(t.modSaved);
       void refetch();
@@ -280,6 +287,33 @@ export function AdminModerationSection() {
                 {t.modSearchBtn}
               </Button>
             </div>
+            <div className="grid gap-3 border-t border-white/5 pt-3 sm:grid-cols-[1fr_auto]">
+              <div className="space-y-1">
+                <Label className="text-[11px]">{t.modReasonLabel}</Label>
+                <Input
+                  className="text-[15px]"
+                  maxLength={500}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder={t.modReasonPlaceholder}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px]">{t.modBanDuration}</Label>
+                <select
+                  className="h-10 rounded-md border border-white/10 bg-bg-deep/60 px-2 text-sm text-fg"
+                  value={banMinutes}
+                  onChange={(e) => setBanMinutes(e.target.value)}
+                >
+                  {BAN_DURATIONS.map((m) => (
+                    <option key={m} value={String(m)}>
+                      {formatModerationDuration(m, t)}
+                    </option>
+                  ))}
+                  <option value="">{t.modBanIndefinite}</option>
+                </select>
+              </div>
+            </div>
           </GlassPanel>
 
           <GlassPanel className="divide-y divide-border/40 p-0">
@@ -299,11 +333,16 @@ export function AdminModerationSection() {
                       {u.isBanned ? (
                         <span className="rounded bg-accent-rose/15 px-1.5 py-0.5 text-accent-rose">
                           {t.modBanned}
+                          {' · '}
+                          {u.bannedUntil
+                            ? t.modBannedUntil.replace('{{until}}', new Date(u.bannedUntil).toLocaleString(t.dateLocale))
+                            : t.modBanIndefinite}
+                          {u.banReason ? ` · ${u.banReason}` : ''}
                         </span>
                       ) : null}
                       {mutedActive ? (
                         <span className="rounded bg-accent-amber/15 px-1.5 py-0.5 text-accent-amber">
-                          {t.modMutedUntil} {new Date(u.mutedUntil!).toLocaleString()}
+                          {t.modMutedUntil} {new Date(u.mutedUntil!).toLocaleString(t.dateLocale)}
                         </span>
                       ) : null}
                     </div>
@@ -327,7 +366,7 @@ export function AdminModerationSection() {
                       onClick={() =>
                         modMut.mutate({
                           id: u.id,
-                          body: { muteMinutes: parseInt(muteMinutes, 10) || 60 },
+                          body: { muteMinutes: parseInt(muteMinutes, 10) || 60, reason: reason.trim() || null },
                         })
                       }
                     >
@@ -347,7 +386,18 @@ export function AdminModerationSection() {
                       size="sm"
                       variant={u.isBanned ? 'outline' : 'destructive'}
                       disabled={modMut.isPending}
-                      onClick={() => modMut.mutate({ id: u.id, body: { isBanned: !u.isBanned } })}
+                      onClick={() =>
+                        modMut.mutate({
+                          id: u.id,
+                          body: u.isBanned
+                            ? { isBanned: false }
+                            : {
+                                isBanned: true,
+                                banMinutes: banMinutes ? Number(banMinutes) : null,
+                                reason: reason.trim() || null,
+                              },
+                        })
+                      }
                     >
                       {u.isBanned ? t.modUnbanBtn : t.modBanBtn}
                     </Button>

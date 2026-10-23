@@ -1,4 +1,97 @@
-import { assertSafeOutboundUrl } from './url-safety.js';
+import http from 'node:http';
+import https from 'node:https';
+import { assertCtfdOutboundUrl, ctfdAllowsInsecureTls } from './url-safety.js';
+
+type CtfdHttpResult = {
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+};
+
+function requestOnce(
+  target: URL,
+  headers: Record<string, string>,
+  timeoutMs: number,
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+  const lib = target.protocol === 'https:' ? https : http;
+  const insecure = target.protocol === 'https:' && ctfdAllowsInsecureTls(target.hostname);
+
+  return new Promise((resolve, reject) => {
+    const req = lib.request(
+      target,
+      {
+        method: 'GET',
+        headers,
+        timeout: timeoutMs,
+        ...(insecure ? { rejectUnauthorized: false } : {}),
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            body: Buffer.concat(chunks).toString('utf8'),
+          });
+        });
+      },
+    );
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('CTFd request timed out'));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/**
+ * Fetch CTFd JSON. LAN hosts often use self-signed TLS and http→https redirects;
+ * both are handled here. Public hosts keep Node's strict fetch + TLS.
+ */
+async function ctfdFetch(
+  url: string,
+  baseHeaders: Record<string, string>,
+  timeoutMs: number,
+): Promise<CtfdHttpResult> {
+  // CTFd ignores `Authorization: Token …` unless Content-Type is JSON and
+  // redirects to /login instead.
+  const headers = { 'Content-Type': 'application/json', ...baseHeaders };
+  const initial = new URL(url);
+  const lan = ctfdAllowsInsecureTls(initial.hostname);
+  const loginRedirect: CtfdHttpResult = { ok: false, status: 401, json: async () => null };
+
+  if (!lan) {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    if (res.redirected && new URL(res.url).pathname.startsWith('/login')) return loginRedirect;
+    return {
+      ok: res.ok,
+      status: res.status,
+      json: () => res.json() as Promise<unknown>,
+    };
+  }
+
+  let current = initial;
+  for (let hop = 0; hop < 5; hop++) {
+    const res = await requestOnce(current, headers, timeoutMs);
+    if (res.status >= 300 && res.status < 400 && res.headers.location) {
+      const next = new URL(res.headers.location, current);
+      if (next.pathname.startsWith('/login')) return loginRedirect;
+      if (!ctfdAllowsInsecureTls(next.hostname) && next.hostname !== current.hostname) {
+        throw new Error(`CTFd redirect left LAN host (${next.hostname})`);
+      }
+      current = next;
+      continue;
+    }
+    return {
+      ok: res.status >= 200 && res.status < 300,
+      status: res.status,
+      json: async () => JSON.parse(res.body) as unknown,
+    };
+  }
+  throw new Error('CTFd redirect loop');
+}
 
 export type CtfdScoreboardRow = {
   team_id?: number;
@@ -125,14 +218,14 @@ async function ctfdGetJson<T>(
   if (opts?.requireToken && !accessToken?.trim()) return null;
 
   try {
-    const root = normalizeBaseUrl(await assertSafeOutboundUrl(baseUrl));
+    const root = normalizeBaseUrl(await assertCtfdOutboundUrl(baseUrl));
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (accessToken?.trim()) headers.Authorization = `Token ${accessToken.trim()}`;
 
-    const res = await fetch(`${root}${path}`, { headers, signal: AbortSignal.timeout(20_000) });
+    const res = await ctfdFetch(`${root}${path}`, headers, 20_000);
     if (!res.ok) return null;
 
-    const json = (await res.json()) as unknown;
+    const json = await res.json();
     return parse(json);
   } catch {
     return null;
@@ -453,7 +546,34 @@ export type CtfdConnectionTestResult = {
   statsAvailable: boolean;
   statsChallengeCount: number | null;
   code: 'success' | 'auth_failed' | 'unreachable' | 'invalid_url' | 'token_required' | 'error';
+  /** Short diagnostic for the UI (network / TLS / parse). */
+  detail?: string;
 };
+
+function failTest(
+  code: CtfdConnectionTestResult['code'],
+  detail?: string,
+): CtfdConnectionTestResult {
+  return {
+    ok: false,
+    teamCount: null,
+    statsAvailable: false,
+    statsChallengeCount: null,
+    code,
+    ...(detail ? { detail: detail.slice(0, 240) } : {}),
+  };
+}
+
+function errorDetail(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const cause =
+    err.cause instanceof Error
+      ? err.cause.message
+      : err.cause && typeof err.cause === 'object' && 'code' in err.cause
+        ? String((err.cause as { code?: string }).code ?? '')
+        : '';
+  return [err.message, cause].filter(Boolean).join(' — ').slice(0, 240);
+}
 
 export async function testCtfdConnection(
   baseUrl: string,
@@ -461,35 +581,31 @@ export async function testCtfdConnection(
 ): Promise<CtfdConnectionTestResult> {
   const token = accessToken?.trim();
   if (!token) {
-    return {
-      ok: false,
-      teamCount: null,
-      statsAvailable: false,
-      statsChallengeCount: null,
-      code: 'token_required',
-    };
+    return failTest('token_required');
   }
 
   try {
-    const root = normalizeBaseUrl(await assertSafeOutboundUrl(baseUrl));
+    const root = normalizeBaseUrl(await assertCtfdOutboundUrl(baseUrl));
     const headers: Record<string, string> = {
       Accept: 'application/json',
       Authorization: `Token ${token}`,
     };
 
-    const res = await fetch(`${root}/api/v1/scoreboard`, {
-      headers,
-      signal: AbortSignal.timeout(12_000),
-    });
+    const res = await ctfdFetch(`${root}/api/v1/scoreboard`, headers, 12_000);
 
     if (res.status === 401 || res.status === 403) {
-      return { ok: false, teamCount: null, statsAvailable: false, statsChallengeCount: null, code: 'auth_failed' };
+      return failTest('auth_failed', `HTTP ${res.status}`);
     }
     if (!res.ok) {
-      return { ok: false, teamCount: null, statsAvailable: false, statsChallengeCount: null, code: 'unreachable' };
+      return failTest('unreachable', `HTTP ${res.status}`);
     }
 
-    const json = (await res.json()) as { data?: CtfdScoreboardRow[] } | CtfdScoreboardRow[];
+    let json: { data?: CtfdScoreboardRow[] } | CtfdScoreboardRow[];
+    try {
+      json = (await res.json()) as { data?: CtfdScoreboardRow[] } | CtfdScoreboardRow[];
+    } catch {
+      return failTest('error', 'CTFd JSON dönmedi (giriş sayfası veya HTML olabilir)');
+    }
     const rows = parseScoreboardPayload(json);
     const cacheKey = `${baseUrl}:${token}`;
     boardCache.set(cacheKey, { at: Date.now(), rows });
@@ -502,9 +618,18 @@ export async function testCtfdConnection(
       code: 'success',
     };
   } catch (err) {
-    if (err instanceof Error && err.message.includes('URL')) {
-      return { ok: false, teamCount: null, statsAvailable: false, statsChallengeCount: null, code: 'invalid_url' };
+    const detail = errorDetail(err);
+    const lower = detail.toLowerCase();
+    if (detail.includes('URL') || lower.includes('not allowed') || lower.includes('invalid url')) {
+      return failTest('invalid_url', detail);
     }
-    return { ok: false, teamCount: null, statsAvailable: false, statsChallengeCount: null, code: 'error' };
+    if (
+      /econnrefused|etimedout|enotfound|ehostunreach|econnreset|network|fetch failed|timed out|socket hang up/.test(
+        lower,
+      )
+    ) {
+      return failTest('unreachable', detail);
+    }
+    return failTest('error', detail);
   }
 }

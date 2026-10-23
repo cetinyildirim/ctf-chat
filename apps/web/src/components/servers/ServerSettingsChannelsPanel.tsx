@@ -20,8 +20,8 @@ export function ServerSettingsChannelsPanel({ serverId }: { serverId: string }) 
   const { t } = useI18n();
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.channels(serverId),
-    queryFn: () => channelsApi.list(serverId),
+    queryKey: queryKeys.channelsSettings(serverId),
+    queryFn: () => channelsApi.list(serverId, { includeEmpty: true }),
   });
 
   const categoryMeta = React.useMemo(() => {
@@ -47,7 +47,10 @@ export function ServerSettingsChannelsPanel({ serverId }: { serverId: string }) 
     }
   }, [data?.categories, chCategoryId]);
 
-  const invalidate = () => void qc.invalidateQueries({ queryKey: queryKeys.channelsAll });
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: queryKeys.channels(serverId) });
+    void qc.invalidateQueries({ queryKey: queryKeys.channelsSettings(serverId) });
+  };
 
   const saveChannelEdit = async (id: string) => {
     if (!chEditName.trim()) return;

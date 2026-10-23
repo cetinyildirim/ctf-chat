@@ -30,6 +30,7 @@ import { smartDate } from '@/lib/format/time';
 import { toast } from 'sonner';
 import { unwrapApiError } from '@/lib/api/axios';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/components/providers/LocaleProvider';
 
 const CAT_COLOR: Record<string, string> = {
   WEB: 'border-accent-cyan/40 text-accent-cyan bg-accent-cyan/10',
@@ -45,6 +46,7 @@ export default function ChallengeDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const queryClient = useQueryClient();
+  const { t } = useI18n();
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.challenge(id),
@@ -54,13 +56,13 @@ export default function ChallengeDetailPage() {
   const unlockMutation = useMutation({
     mutationFn: (hintId: string) => challengesApi.unlockHint(hintId),
     onSuccess: () => {
-      toast.success('Hint unlocked');
+      toast.success(t.challengeHintUnlocked);
       void queryClient.invalidateQueries({ queryKey: queryKeys.challenge(id) });
     },
     onError: (err) => toast.error(unwrapApiError(err).message),
   });
 
-  if (isLoading || !data) return <LoadingScreen label="Loading challenge..." />;
+  if (isLoading || !data) return <LoadingScreen label={t.loadingChallenge} />;
   const { challenge, hints, solves } = data;
 
   return (
@@ -78,19 +80,19 @@ export default function ChallengeDetailPage() {
             <span>{challenge.title}</span>
             {challenge.isSolvedByMyTeam ? (
               <span className="inline-flex items-center gap-1 rounded-md border border-accent-emerald/40 bg-accent-emerald/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-accent-emerald">
-                <CheckCircle2 className="h-3 w-3" /> Solved
+                <CheckCircle2 className="h-3 w-3" /> {t.challengeSolvedBadge}
               </span>
             ) : null}
           </div>
         }
-        subtitle={`${challenge.category} · ${challenge.difficulty} · ${challenge.points} pts`}
+        subtitle={`${challenge.category} · ${challenge.difficulty} · ${challenge.points} ${t.pointsShort}`}
         right={
           <div className="flex items-center gap-2">
             {challenge.discussionChannelId ? (
               <Button asChild variant="ghost" size="sm">
                 <Link href={`/channels/${challenge.discussionChannelId}`}>
                   <Hash className="h-3.5 w-3.5" />
-                  Open discussion
+                  {t.challengeOpenDiscussion}
                 </Link>
               </Button>
             ) : null}
@@ -99,7 +101,7 @@ export default function ChallengeDetailPage() {
               trigger={
                 <Button variant="primary" size="sm">
                   <LifeBuoy className="h-3.5 w-3.5" />
-                  Open ticket
+                  {t.challengeOpenTicket}
                 </Button>
               }
             />
@@ -123,7 +125,7 @@ export default function ChallengeDetailPage() {
                 <span className="font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
                   {challenge.difficulty}
                 </span>
-                <span className="font-mono text-sm text-fg">{challenge.points} pts</span>
+                <span className="font-mono text-sm text-fg">{challenge.points} {t.pointsShort}</span>
               </div>
               <div className="prose-invert space-y-2">
                 <MessageMarkdown content={challenge.description} />
@@ -143,9 +145,9 @@ export default function ChallengeDetailPage() {
             </GlassPanel>
 
             <GlassPanel className="p-4">
-              <Section title="Hints" description="Cost is in points (deducted on unlock)" />
+              <Section title={t.challengeHints} description={t.challengeHintsCost} />
               {hints.length === 0 ? (
-                <div className="text-xs text-muted-fg">No hints available for this challenge.</div>
+                <div className="text-xs text-muted-fg">{t.challengeNoHints}</div>
               ) : (
                 <ul className="space-y-2">
                   {hints.map((h) => (
@@ -166,7 +168,7 @@ export default function ChallengeDetailPage() {
                       />
                       <div className="flex-1">
                         <div className="text-[11px] uppercase tracking-wider text-muted-fg">
-                          Hint #{h.order + 1} · {h.cost > 0 ? `-${h.cost} pts` : 'free'}
+                          {t.challengeHintN.replace('{{n}}', String(h.order + 1))} · {h.cost > 0 ? `-${h.cost} ${t.pointsShort}` : t.challengeHintFree}
                         </div>
                         {h.unlocked ? (
                           <div className="mt-1 text-sm text-fg">{h.text}</div>
@@ -183,7 +185,7 @@ export default function ChallengeDetailPage() {
                             ) : (
                               <Lightbulb className="h-3.5 w-3.5" />
                             )}
-                            Unlock hint
+                            {t.challengeUnlockHint}
                           </Button>
                         )}
                       </div>
@@ -196,17 +198,17 @@ export default function ChallengeDetailPage() {
 
           <aside className="space-y-3">
             <GlassPanel className="p-3 space-y-2">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-fg">Stats</div>
-              <Row k="Points" v={<span className="font-mono">{challenge.points}</span>} />
-              <Row k="Solves" v={<span className="font-mono">{challenge.solveCount}</span>} />
-              <Row k="Hints" v={<span className="font-mono">{challenge.hintCount}</span>} />
-              <Row k="Author" v={<span>{challenge.authorName ?? '—'}</span>} />
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-fg">{t.challengeStats}</div>
+              <Row k={t.challengeStatPoints} v={<span className="font-mono">{challenge.points}</span>} />
+              <Row k={t.challengeStatSolves} v={<span className="font-mono">{challenge.solveCount}</span>} />
+              <Row k={t.challengeStatHints} v={<span className="font-mono">{challenge.hintCount}</span>} />
+              <Row k={t.challengeStatAuthor} v={<span>{challenge.authorName ?? '—'}</span>} />
             </GlassPanel>
 
             <GlassPanel className="p-3">
-              <Section title="Solve timeline" />
+              <Section title={t.challengeSolveTimeline} />
               {solves.length === 0 ? (
-                <div className="text-xs text-muted-fg">No team has solved this yet.</div>
+                <div className="text-xs text-muted-fg">{t.challengeNoSolves}</div>
               ) : (
                 <ul className="space-y-1.5">
                   {solves.map((s, i) => (
@@ -231,7 +233,7 @@ export default function ChallengeDetailPage() {
                 href={`/channels/${challenge.discussionChannelId}`}
                 className="flex items-center justify-between rounded-lg border border-accent-cyan/30 bg-accent-cyan/5 p-3 text-sm text-accent-cyan hover:bg-accent-cyan/10"
               >
-                <span>Open discussion channel</span>
+                <span>{t.challengeOpenDiscussionChannel}</span>
                 <ExternalLink className="h-4 w-4" />
               </Link>
             ) : null}

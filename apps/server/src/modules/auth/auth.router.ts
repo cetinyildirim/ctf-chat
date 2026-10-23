@@ -9,14 +9,15 @@ import { requireAuth, COOKIE_NAMES, type AuthUser } from '../../middleware/auth.
 import { hashPassword, verifyPassword } from '../../lib/password.js';
 import { ensureUserHasHomeServer } from '../../lib/migrate-default-server.js';
 import { assignDefaultRoleToMember } from '../../lib/assign-default-server-role.js';
-import { serverMemberJoinFields } from '../../lib/server-membership.js';
+import { joinAutoJoinServers, serverMemberJoinFields } from '../../lib/server-membership.js';
 import {
   hashToken,
   signAccessToken,
   signRefreshToken,
   verifyRefreshToken,
 } from '../../lib/jwt.js';
-import { BadRequest, Conflict, Unauthorized } from '../../lib/http-error.js';
+import { BadRequest, Conflict, HttpError, Unauthorized } from '../../lib/http-error.js';
+import { liftExpiredBan } from '../../lib/moderation-notify.js';
 import { audit } from '../../lib/audit.js';
 import type { Request, Response } from 'express';
 import { buildSessionUser } from '../../lib/session-user.js';
@@ -121,6 +122,7 @@ router.post('/register', authLimiter, validate(schemas.registerSchema), async (r
     } else {
       await ensureUserHasHomeServer(user.id);
     }
+    await joinAutoJoinServers(user.id);
 
     const { access, refresh } = await issueTokens(await authPayloadForUser(user.id));
     writeAuthCookies(res, access, refresh);
@@ -138,9 +140,21 @@ router.post('/login', authLimiter, validate(schemas.loginSchema), async (req, re
     const user = await prisma.user.findFirst({
       where: { OR: [{ email: identifier }, { username: identifier }] },
     });
-    if (!user || user.isBanned) throw Unauthorized('Invalid credentials', 'BAD_CREDENTIALS');
+    if (!user) throw Unauthorized('Invalid credentials', 'BAD_CREDENTIALS');
     const ok = await verifyPassword(user.passwordHash, data.password);
     if (!ok) throw Unauthorized('Invalid credentials', 'BAD_CREDENTIALS');
+    // Suspension details are revealed only after the password checks out.
+    if (user.isBanned && !(await liftExpiredBan(user.id))) {
+      throw new HttpError(403, 'Your account is suspended', 'ACCOUNT_SUSPENDED', {
+        until: user.bannedUntil?.toISOString() ?? null,
+        reason: user.banReason,
+      });
+    }
+    if (user.disabledAt) {
+      throw new HttpError(403, 'Your account is deactivated', 'ACCOUNT_DISABLED', {
+        reason: user.disabledReason,
+      });
+    }
 
     // Accounts created before open-registration started placing users on the
     // default server would otherwise land with an empty rail. Heal that once.
@@ -193,7 +207,7 @@ router.post('/refresh', authLimiter, async (req, res, next) => {
     });
 
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
-    if (!user || user.isBanned) {
+    if (!user || user.isBanned || user.disabledAt) {
       clearAuthCookies(res);
       throw Unauthorized();
     }
@@ -264,7 +278,7 @@ router.post(
       const data = req.body as z.infer<typeof schemas.changePasswordSchema>;
       const userId = req.user!.id;
       const user = await prisma.user.findUnique({ where: { id: userId } });
-      if (!user || user.isBanned) throw Unauthorized();
+      if (!user || user.isBanned || user.disabledAt) throw Unauthorized();
 
       const ok = await verifyPassword(user.passwordHash, data.currentPassword);
       if (!ok) throw Unauthorized('Current password is incorrect', 'BAD_PASSWORD');
@@ -273,7 +287,7 @@ router.post(
       }
 
       const passwordHash = await hashPassword(data.newPassword);
-      await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+      await prisma.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: false } });
       await prisma.serverMember.updateMany({
         where: { userId },
         data: { mustChangePassword: false },

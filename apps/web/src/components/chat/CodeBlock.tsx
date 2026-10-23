@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import { useI18n } from '@/components/providers/LocaleProvider';
 
 type Highlighter = {
   codeToHtml: (code: string, opts: { lang: string; theme: string }) => string;
@@ -62,6 +63,7 @@ function resolveLang(lang?: string): string {
 }
 
 export function CodeBlock({ code, language }: Props) {
+  const { t } = useI18n();
   const [html, setHtml] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
   const lang = resolveLang(language);
@@ -86,10 +88,10 @@ export function CodeBlock({ code, language }: Props) {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
-      toast.success('Copied to clipboard');
+      toast.success(t.codeCopied);
       setTimeout(() => setCopied(false), 1200);
     } catch {
-      toast.error('Clipboard unavailable');
+      toast.error(t.codeClipboardUnavailable);
     }
   };
 

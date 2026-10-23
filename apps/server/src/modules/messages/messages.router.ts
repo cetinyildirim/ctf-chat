@@ -16,17 +16,23 @@ import { serializeMessage, serializeUser } from '../serializers.js';
 import { loadChannel, assertCanAccessChannel, userCanAccessChannel } from './access.js';
 import { channelMessageUpload, safeBasename, absolutePathForStoredAttachment, unlinkQuiet } from '../../lib/upload.js';
 import { isAllowedMessageUpload, verifyMessageUploadFile } from '../../lib/allowed-upload.js';
+import { assertUploadNotInfected } from '../../lib/virus-scan.js';
 import {
   emitMessageDelete,
   emitMessageEdit,
   emitMessageNew,
   emitMessageReact,
   emitMention,
+  emitDirectMessage,
 } from '../../realtime/broadcasters.js';
 import { effectiveNotifyModes } from '../../lib/channel-notify-prefs.js';
+import { notifyDirectMessage } from '../../lib/notify.js';
 import { assertUserCanUsePlatform } from '../../lib/user-moderation.js';
 import { getUploadMaxMb } from '../../lib/platform-settings.js';
-import { assertChannelServerPermission } from '../../lib/server-permissions.js';
+import {
+  assertChannelServerPermission,
+  canModerateChannelMessages,
+} from '../../lib/server-permissions.js';
 
 const router: Router = Router({ mergeParams: true });
 
@@ -235,6 +241,7 @@ router.post(
           } catch {
             throw BadRequest(`File content rejected: ${f.originalname}`);
           }
+          await assertUploadNotInfected(f.path, safeBasename(f.originalname));
           tempPaths.push(f.path);
         }
 
@@ -309,6 +316,33 @@ router.post(
       const serialized = serializeMessage(full);
       emitMessageNew(channelId, serialized);
 
+      if (channel.type === 'DIRECT_MESSAGE') {
+        const participants = await prisma.channelDmParticipant.findMany({
+          where: { channelId },
+          select: { userId: true },
+        });
+        const preview = content.slice(0, 140) || (full.attachments.length ? '📎' : '');
+        const fromDisplayName = full.author.displayName || full.author.username;
+        for (const p of participants) {
+          if (p.userId === req.user!.id) continue;
+          emitDirectMessage({
+            userId: p.userId,
+            channelId,
+            messageId: message.id,
+            fromUserId: req.user!.id,
+            fromDisplayName,
+            preview,
+          });
+          void notifyDirectMessage({
+            userId: p.userId,
+            channelId,
+            fromDisplayName,
+            fromUsername: full.author.username,
+            preview,
+          });
+        }
+      }
+
       if (mentions.length > 0) {
         const mentionedUsers = await prisma.user.findMany({
           where: { username: { in: mentions } },
@@ -379,10 +413,12 @@ router.delete('/messages/:id', async (req, res, next) => {
     if (!id) throw NotFound();
     const { original, channel } = await assertMessageChannelAccess(id, req.user!);
     const isOwner = original.authorId === req.user!.id;
-    const canDeleteAny = isStaff(req.user!.role);
-    if (!isOwner && !canDeleteAny) throw Forbidden();
-    // Non-owner deletes are staff moderation (platform RBAC). Server manageMessages
-    // is enforced for member self-service tools via role UI, not this path.
+    if (
+      !isOwner &&
+      !(await canModerateChannelMessages(req.user!, channel, Permission.MESSAGE_DELETE_ANY))
+    ) {
+      throw Forbidden();
+    }
     await prisma.message.update({
       where: { id },
       data: { deletedAt: new Date(), content: '' },
@@ -449,12 +485,14 @@ router.post(
 
 router.post(
   '/messages/:id/pin',
-  requirePermission(Permission.MESSAGE_PIN),
   async (req, res, next) => {
     try {
       const id = req.params.id;
       if (!id) throw NotFound();
-      const { original: message } = await assertMessageChannelAccess(id, req.user!);
+      const { original: message, channel } = await assertMessageChannelAccess(id, req.user!);
+      if (!(await canModerateChannelMessages(req.user!, channel, Permission.MESSAGE_PIN))) {
+        throw Forbidden('You do not have permission to perform this action');
+      }
       await prisma.pin.upsert({
         where: { messageId: id },
         update: { pinnedById: req.user!.id, pinnedAt: new Date() },

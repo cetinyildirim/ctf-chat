@@ -1,16 +1,60 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { FriendshipStatus } from '@sydt/shared';
+import { FriendshipStatus, NotificationKind } from '@sydt/shared';
 import { prisma } from '../../prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { BadRequest, Forbidden, NotFound } from '../../lib/http-error.js';
 import { validate } from '../../middleware/validate.js';
 import { serializeUser } from '../serializers.js';
 import { audit } from '../../lib/audit.js';
+import { notifyUsers } from '../../lib/notify.js';
 
 const router: Router = Router();
 
+type FriendActor = { id: string; username: string; displayName: string };
+
+function notifyFriendEvent(
+  kind: typeof NotificationKind.FRIEND_REQUEST | typeof NotificationKind.FRIEND_ACCEPTED,
+  recipientId: string,
+  actor: FriendActor,
+  friendshipId: string,
+): void {
+  const name = actor.displayName || actor.username;
+  void notifyUsers({
+    userIds: [recipientId],
+    kind,
+    title:
+      kind === NotificationKind.FRIEND_REQUEST
+        ? `${name} sent you a friend request`
+        : `${name} accepted your friend request`,
+    body: `@${actor.username}`,
+    href: '/friends',
+    refType: 'friendship',
+    refId: friendshipId,
+    meta: { displayName: name, username: actor.username },
+  });
+}
+
 router.use(requireAuth);
+
+/** One-to-one DM channels of `userId`, keyed by the other participant. */
+async function directChannelsByPeer(userId: string) {
+  const mine = await prisma.channelDmParticipant.findMany({
+    where: { userId, channel: { type: 'DIRECT_MESSAGE' } },
+    select: {
+      channelId: true,
+      lastReadAt: true,
+      channel: { select: { dmParticipants: { select: { userId: true } } } },
+    },
+  });
+  const map = new Map<string, { channelId: string; lastReadAt: Date | null }>();
+  for (const row of mine) {
+    const others = row.channel.dmParticipants.filter((p) => p.userId !== userId);
+    if (others.length !== 1) continue;
+    map.set(others[0]!.userId, { channelId: row.channelId, lastReadAt: row.lastReadAt });
+  }
+  return map;
+}
 
 const requestSchema = z.object({
   username: z.string().min(3).max(24),
@@ -37,7 +81,26 @@ router.get('/', async (req, res, next) => {
       requester: serializeUser(f.requester),
       addressee: serializeUser(f.addressee),
     });
-    const accepted = rows.filter((f) => f.status === FriendshipStatus.ACCEPTED).map(mapRow);
+    const dmByPeer = await directChannelsByPeer(me);
+    const accepted = await Promise.all(
+      rows
+        .filter((f) => f.status === FriendshipStatus.ACCEPTED)
+        .map(async (f) => {
+          const peerId = f.requesterId === me ? f.addresseeId : f.requesterId;
+          const dm = dmByPeer.get(peerId);
+          const unreadCount = dm
+            ? await prisma.message.count({
+                where: {
+                  channelId: dm.channelId,
+                  authorId: { not: me },
+                  deletedAt: null,
+                  ...(dm.lastReadAt ? { createdAt: { gt: dm.lastReadAt } } : {}),
+                },
+              })
+            : 0;
+          return { ...mapRow(f), dmChannelId: dm?.channelId ?? null, unreadCount };
+        }),
+    );
     const pendingIn = rows
       .filter((f) => f.status === FriendshipStatus.PENDING && f.addresseeId === me)
       .map(mapRow);
@@ -86,6 +149,7 @@ router.post('/request', validate(requestSchema), async (req, res, next) => {
         target: target.id,
         meta: { username: target.username },
       });
+      notifyFriendEvent(NotificationKind.FRIEND_ACCEPTED, target.id, updated.addressee, updated.id);
       res.json({
         friendship: {
           ...updated,
@@ -109,6 +173,7 @@ router.post('/request', validate(requestSchema), async (req, res, next) => {
         target: target.id,
         meta: { username: target.username },
       });
+      notifyFriendEvent(NotificationKind.FRIEND_REQUEST, target.id, created.requester, created.id);
       res.status(201).json({
       friendship: {
         id: created.id,
@@ -158,6 +223,7 @@ router.post('/:id/accept', validate(idParamSchema, 'params'), async (req, res, n
       target: peer.id,
       meta: { username: peer.username },
     });
+    notifyFriendEvent(NotificationKind.FRIEND_ACCEPTED, updated.requesterId, updated.addressee, updated.id);
     res.json({
       friendship: {
         id: updated.id,

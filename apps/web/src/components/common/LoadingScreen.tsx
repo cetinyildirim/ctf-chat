@@ -1,7 +1,9 @@
 'use client';
 import { motion } from 'framer-motion';
+import { useI18n } from '@/components/providers/LocaleProvider';
 
-export function LoadingScreen({ label = 'Establishing secure channel...' }: { label?: string }) {
+export function LoadingScreen({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="relative flex h-screen w-full items-center justify-center overflow-hidden bg-bg">
       <div className="absolute inset-0 bg-grid-fade" />
@@ -23,7 +25,7 @@ export function LoadingScreen({ label = 'Establishing secure channel...' }: { la
         </motion.div>
         <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-[0.3em] text-fg-subtle">
           <span className="h-2 w-2 rounded-full bg-accent-cyan animate-pulse-glow" />
-          {label}
+          {label ?? t.loadingSecureChannel}
         </div>
       </div>
     </div>

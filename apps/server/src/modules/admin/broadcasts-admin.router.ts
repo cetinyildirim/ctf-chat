@@ -76,6 +76,7 @@ router.post(
         title: data.title,
         body: data.body,
         severity: data.severity,
+        requireAck: data.requireAck,
       });
       await audit({
         actorId: req.user?.id,

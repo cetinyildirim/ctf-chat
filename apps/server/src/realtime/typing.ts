@@ -21,6 +21,17 @@ export function stopTyping(channelId: string, userId: string): boolean {
   return buckets.delete(key(channelId, userId));
 }
 
+/** Drops every typing entry of `userId`; returns the affected channel ids. */
+export function stopAllTyping(userId: string): string[] {
+  const channels: string[] = [];
+  for (const [k, entry] of buckets) {
+    if (entry.userId !== userId) continue;
+    buckets.delete(k);
+    channels.push(entry.channelId);
+  }
+  return channels;
+}
+
 export function listTyping(channelId: string): string[] {
   const now = Date.now();
   const userIds: string[] = [];

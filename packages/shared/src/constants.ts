@@ -1,6 +1,9 @@
 export const APP_NAME = 'SYDT';
 export const APP_TAGLINE = 'CTF Operations Console';
 
+/** Pseudo server id in `mustChangePasswordServerIds` for an account-wide forced password change. */
+export const PLATFORM_PASSWORD_RESET_ID = '__platform__';
+
 export const ChannelType = {
   GLOBAL_ANNOUNCEMENT: 'GLOBAL_ANNOUNCEMENT',
   GLOBAL_CHAT: 'GLOBAL_CHAT',
@@ -109,6 +112,15 @@ export const NotificationKind = {
   TICKET_MULTI_TEAM: 'TICKET_MULTI_TEAM',
   ANNOUNCEMENT: 'ANNOUNCEMENT',
   MENTION: 'MENTION',
+  FRIEND_REQUEST: 'FRIEND_REQUEST',
+  FRIEND_ACCEPTED: 'FRIEND_ACCEPTED',
+  DIRECT_MESSAGE: 'DIRECT_MESSAGE',
+  USER_MUTED: 'USER_MUTED',
+  USER_UNMUTED: 'USER_UNMUTED',
+  USER_BANNED: 'USER_BANNED',
+  USER_UNBANNED: 'USER_UNBANNED',
+  SERVER_BANNED: 'SERVER_BANNED',
+  SERVER_UNBANNED: 'SERVER_UNBANNED',
   SYSTEM: 'SYSTEM',
 } as const;
 export type NotificationKind = (typeof NotificationKind)[keyof typeof NotificationKind];

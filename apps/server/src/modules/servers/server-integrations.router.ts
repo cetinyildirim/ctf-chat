@@ -10,7 +10,7 @@ import { audit } from '../../lib/audit.js';
 import { serializeAnnouncement } from '../serializers.js';
 import { publishAnnouncementById } from '../../lib/announcement-publish.js';
 import { assertServerPermission } from '../../lib/server-permissions.js';
-import { assertSafeOutboundUrl } from '../../lib/url-safety.js';
+import { assertCtfdOutboundUrl, assertSafeOutboundUrl } from '../../lib/url-safety.js';
 import { testCtfdConnection, invalidateCtfdCaches } from '../../lib/ctfd-client.js';
 
 const router: Router = Router({ mergeParams: true });
@@ -21,6 +21,13 @@ const webhookIdSchema = idSchema.extend({ webhookId: z.string().cuid() });
 
 async function assertServerManage(serverId: string, userId: string, role: Role) {
   await assertServerPermission(userId, serverId, 'manageServer', permissionsFor(role));
+}
+
+/** Platform ANNOUNCEMENT_CREATE, or the server role's `manageAnnouncements`. */
+async function assertCanAnnounce(serverId: string, userId: string, role: Role) {
+  const platform = permissionsFor(role);
+  if (platform.includes(Permission.ANNOUNCEMENT_CREATE)) return;
+  await assertServerPermission(userId, serverId, 'manageAnnouncements', platform);
 }
 
 router.get('/integrations', validate(idSchema, 'params'), async (req, res, next) => {
@@ -54,7 +61,7 @@ router.patch(
       const serverId = req.params.id!;
       const body = req.body as z.infer<typeof schemas.patchServerIntegrationsSchema>;
       if (body.ctfdBaseUrl !== undefined && body.ctfdBaseUrl) {
-        await assertSafeOutboundUrl(body.ctfdBaseUrl);
+        await assertCtfdOutboundUrl(body.ctfdBaseUrl);
       }
       if (body.ctfdBaseUrl !== undefined || body.ctfdAccessToken !== undefined) {
         invalidateCtfdCaches();
@@ -204,7 +211,7 @@ router.delete(
 router.get('/announcements', validate(idSchema, 'params'), async (req, res, next) => {
   try {
     const serverId = req.params.id!;
-    await assertServerManage(serverId, req.user!.id, req.user!.role);
+    await assertCanAnnounce(serverId, req.user!.id, req.user!.role);
     const rows = await prisma.announcement.findMany({
       where: { serverId },
       orderBy: { createdAt: 'desc' },
@@ -219,12 +226,12 @@ router.get('/announcements', validate(idSchema, 'params'), async (req, res, next
 
 router.post(
   '/announcements',
-  requirePermission(Permission.ANNOUNCEMENT_CREATE),
   validate(idSchema, 'params'),
   validate(schemas.createServerAnnouncementSchema),
   async (req, res, next) => {
     try {
       const serverId = req.params.id!;
+      await assertCanAnnounce(serverId, req.user!.id, req.user!.role);
       const body = req.body as z.infer<typeof schemas.createServerAnnouncementSchema>;
       if (body.channelId) {
         const ch = await prisma.channel.findFirst({ where: { id: body.channelId, serverId } });
@@ -242,6 +249,7 @@ router.post(
           serverId,
           channelId: body.channelId ?? null,
           scheduledFor,
+          requireAck: body.requireAck ?? false,
         },
         include: { author: { include: { team: true } } },
       });

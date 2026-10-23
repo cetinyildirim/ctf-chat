@@ -1,0 +1,27 @@
+[Unit]
+Description=SYDT Chat API (Express + Socket.IO)
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sydt
+Group=sydt
+WorkingDirectory=/opt/sydt-chat/apps/server
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/sydt-chat/apps/server/.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+# Güvenlik sertleştirme (ihtiyaca göre gevşetin)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sydt /opt/sydt-chat/apps/server
+
+# Limitler
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

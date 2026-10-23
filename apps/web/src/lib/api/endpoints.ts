@@ -40,6 +40,7 @@ import type {
   RegistrationSettings,
 } from '@sydt/shared';
 import { schemas } from '@sydt/shared';
+import type { Role } from '@sydt/shared';
 import type { z } from 'zod';
 import { api } from './axios';
 
@@ -289,6 +290,7 @@ export const serversApi = {
       statsAvailable: boolean;
       statsChallengeCount: number | null;
       code: 'success' | 'auth_failed' | 'unreachable' | 'invalid_url' | 'token_required' | 'error';
+      detail?: string;
     }>(`/servers/${serverId}/integrations/ctfd/test`, body);
     return data;
   },
@@ -350,6 +352,12 @@ export const serversApi = {
     );
     return data.groups;
   },
+  async myPermissions(serverId: string) {
+    const { data } = await api.get<{ permissions: import('@sydt/shared').ServerPermKey[] }>(
+      `/servers/${serverId}/my-permissions`,
+    );
+    return data.permissions;
+  },
   async getMemberRoleGroups(serverId: string) {
     const { data } = await api.get<{
       groups: Array<{ role: import('@sydt/shared').ServerRole; members: import('@sydt/shared').PublicUser[] }>;
@@ -360,8 +368,13 @@ export const serversApi = {
 };
 
 export const channelsApi = {
-  async list(serverId: string) {
-    const { data } = await api.get<ChannelsListPayload>('/channels', { params: { serverId } });
+  async list(serverId: string, opts?: { includeEmpty?: boolean }) {
+    const { data } = await api.get<ChannelsListPayload>('/channels', {
+      params: {
+        serverId,
+        ...(opts?.includeEmpty ? { includeEmpty: '1' } : {}),
+      },
+    });
     return data;
   },
   async get(id: string) {
@@ -913,6 +926,13 @@ export const announcementsApi = {
     const { data } = await api.get<{ announcements: Announcement[] }>('/announcements');
     return data.announcements;
   },
+  async pendingAck() {
+    const { data } = await api.get<{ announcements: Announcement[] }>('/announcements/pending-ack');
+    return data.announcements;
+  },
+  async ack(id: string) {
+    await api.post(`/announcements/${id}/ack`);
+  },
 };
 
 export interface CtfdImportStats {
@@ -1008,7 +1028,7 @@ export interface AdminRuntimeInfo {
 export const friendsApi = {
   async summary() {
     const { data } = await api.get<{
-      accepted: FriendshipRowLite[];
+      accepted: Array<FriendshipRowLite & { dmChannelId: string | null; unreadCount: number }>;
       pendingIncoming: FriendshipRowLite[];
       pendingOutgoing: FriendshipRowLite[];
     }>('/friends');
@@ -1040,10 +1060,30 @@ type FriendshipRowLite = {
   addressee: PublicUser;
 };
 
+export type DirectConversation = {
+  channelId: string;
+  peer: PublicUser;
+  lastMessage: {
+    id: string;
+    authorId: string;
+    preview: string;
+    attachmentCount: number;
+    createdAt: string;
+  };
+  unreadCount: number;
+};
+
 export const directApi = {
+  async conversations() {
+    const { data } = await api.get<{ conversations: DirectConversation[]; totalUnread: number }>('/direct');
+    return data;
+  },
   async open(peerUserId: string) {
     const { data } = await api.post<{ channel: Channel; channelId: string }>('/direct/open', { peerUserId });
     return data;
+  },
+  async markRead(channelId: string) {
+    await api.post(`/direct/${channelId}/read`);
   },
 };
 
@@ -1278,6 +1318,62 @@ export type AdminBroadcastRow = {
   createdBy: PublicUser | null;
 };
 
+export type BackupFrequency = 'EVERY_6H' | 'EVERY_12H' | 'DAILY' | 'WEEKLY';
+
+export type BackupSettings = {
+  enabled: boolean;
+  frequency: BackupFrequency;
+  hour: number;
+  weekday: number;
+  retention: number;
+  includeUploads: boolean;
+};
+
+export type BackupFile = {
+  name: string;
+  sizeBytes: number;
+  createdAt: string;
+  trigger: 'auto' | 'manual';
+};
+
+export type BackupOverview = {
+  settings: BackupSettings;
+  lastRun: {
+    at: string;
+    status: 'OK' | 'FAILED' | null;
+    error: string | null;
+    durationMs: number | null;
+    sizeBytes: number | null;
+  } | null;
+  nextRunAt: string | null;
+  running: { trigger: 'auto' | 'manual'; startedAt: string } | null;
+  backupDir: string;
+  uploadDir: string;
+  diskFreeBytes: number | null;
+  serverTime: string;
+  backups: BackupFile[];
+};
+
+export const adminBackupsApi = {
+  async overview() {
+    const { data } = await api.get<BackupOverview>('/admin/backups');
+    return data;
+  },
+  async updateSettings(patch: Partial<BackupSettings>) {
+    const { data } = await api.patch<{ ok: true; nextRunAt: string | null }>('/admin/backups/settings', patch);
+    return data;
+  },
+  async run() {
+    await api.post('/admin/backups/run');
+  },
+  async remove(name: string) {
+    await api.delete(`/admin/backups/${encodeURIComponent(name)}`);
+  },
+  downloadUrl(name: string) {
+    return `/api/admin/backups/${encodeURIComponent(name)}/download`;
+  },
+};
+
 export const adminBroadcastsApi = {
   async history() {
     const { data } = await api.get<{ broadcasts: AdminBroadcastRow[] }>('/admin/broadcasts/history');
@@ -1293,8 +1389,18 @@ export const adminBroadcastsApi = {
   },
 };
 
+export type ModerationBody = {
+  isBanned?: boolean;
+  mutedUntil?: string | null;
+  muteMinutes?: number;
+  banMinutes?: number | null;
+  reason?: string | null;
+};
+
 export type AdminModerationUser = PublicUser & {
   isBanned: boolean;
+  bannedUntil?: string | null;
+  banReason?: string | null;
   mutedUntil: string | null;
   mutedSince?: string | null;
 };
@@ -1322,7 +1428,7 @@ export const adminUsersApi = {
   },
   async setModeration(
     userId: string,
-    body: { isBanned?: boolean; mutedUntil?: string | null; muteMinutes?: number },
+    body: ModerationBody,
   ) {
     const { data } = await api.patch<{ user: AdminModerationUser }>(`/admin/users/${userId}/moderation`, body);
     return data.user;
@@ -1334,6 +1440,167 @@ export const adminUsersApi = {
   async muteHistory() {
     const { data } = await api.get<{ entries: MuteHistoryEntry[] }>('/admin/users/mutes/history');
     return data.entries;
+  },
+};
+
+export type ManagedUserStatusFilter = 'active' | 'disabled' | 'banned' | 'muted' | 'mustChange';
+
+export type ManagedUserFilters = {
+  q?: string;
+  role?: Role | '';
+  serverId?: string;
+  status?: ManagedUserStatusFilter | '';
+};
+
+export type ManagedUser = PublicUser & {
+  email: string;
+  createdAt: string;
+  lastSeenAt: string | null;
+  isBanned: boolean;
+  bannedUntil: string | null;
+  mutedUntil: string | null;
+  disabledAt: string | null;
+  disabledReason: string | null;
+  mustChangePassword: boolean;
+  serverCount: number;
+};
+
+export type ManagedUserDetail = {
+  user: ManagedUser;
+  activeSessions: number;
+  servers: Array<{
+    serverId: string;
+    name: string;
+    iconUrl: string | null;
+    joinedAt: string;
+    bannedAt: string | null;
+    roles: Array<{ id: string; name: string; color: string }>;
+    team: { id: string; name: string; color: string } | null;
+  }>;
+};
+
+export type ManagedServer = {
+  id: string;
+  name: string;
+  iconUrl: string | null;
+  autoJoinNewUsers: boolean;
+  memberCount: number;
+  roles: Array<{ id: string; name: string; color: string }>;
+};
+
+export type BulkMembershipSource =
+  | { type: 'all' }
+  | { type: 'users'; userIds: string[] }
+  | { type: 'platformRole'; role: Role }
+  | { type: 'server'; serverId: string; roleId?: string | null };
+
+export type BulkMembershipBody = {
+  action: 'add' | 'move' | 'remove';
+  source: BulkMembershipSource;
+  targetServerId?: string;
+  targetRoleId?: string | null;
+  fromServerId?: string;
+  includeDisabled?: boolean;
+};
+
+export type BulkMembershipResult = {
+  matched: number;
+  added: number;
+  unbanned: number;
+  existing: number;
+  removed: number;
+};
+
+export type CreateManagedUserBody = {
+  email: string;
+  username: string;
+  displayName: string;
+  password?: string;
+  mustChangePassword?: boolean;
+  role: Role;
+  serverId?: string;
+  serverRoleId?: string | null;
+};
+
+function managedFilterParams(f: ManagedUserFilters) {
+  return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined && v !== ''));
+}
+
+export const adminUserManageApi = {
+  async list(filters: ManagedUserFilters & { page?: number; pageSize?: number }) {
+    const { data } = await api.get<{ users: ManagedUser[]; total: number; page: number; pageSize: number }>(
+      '/admin/users/manage',
+      { params: managedFilterParams(filters) },
+    );
+    return data;
+  },
+  async exportCsv(filters: ManagedUserFilters) {
+    const { data } = await api.get<Blob>('/admin/users/manage/export.csv', {
+      params: managedFilterParams(filters),
+      responseType: 'blob',
+    });
+    return data;
+  },
+  async detail(userId: string) {
+    const { data } = await api.get<ManagedUserDetail>(`/admin/users/manage/${userId}`);
+    return data;
+  },
+  async create(body: CreateManagedUserBody) {
+    const { data } = await api.post<{ id: string; username: string; temporaryPassword: string | null }>(
+      '/admin/users/manage',
+      body,
+    );
+    return data;
+  },
+  async updateProfile(userId: string, body: { displayName?: string; username?: string; email?: string }) {
+    await api.patch(`/admin/users/manage/${userId}/profile`, body);
+  },
+  async setPassword(userId: string, password: string, mustChangePassword: boolean) {
+    const { data } = await api.post<{ temporaryPassword: string | null }>(
+      `/admin/users/manage/${userId}/password`,
+      { mode: 'set', password, mustChangePassword },
+    );
+    return data;
+  },
+  async resetPassword(userId: string) {
+    const { data } = await api.post<{ temporaryPassword: string | null }>(
+      `/admin/users/manage/${userId}/password`,
+      { mode: 'reset' },
+    );
+    return data.temporaryPassword;
+  },
+  async setRole(userId: string, role: Role) {
+    await api.patch(`/admin/users/manage/${userId}/role`, { role });
+  },
+  async setDisabled(userId: string, disabled: boolean, reason?: string | null) {
+    await api.patch(`/admin/users/manage/${userId}/status`, { disabled, reason: reason ?? null });
+  },
+  async revokeSessions(userId: string) {
+    await api.post(`/admin/users/manage/${userId}/sessions/revoke`);
+  },
+  async addToServer(userId: string, serverId: string, roleId?: string | null) {
+    await api.put(`/admin/users/manage/${userId}/servers/${serverId}`, { roleId: roleId ?? null });
+  },
+  async removeFromServer(userId: string, serverId: string) {
+    await api.delete(`/admin/users/manage/${userId}/servers/${serverId}`);
+  },
+  async servers() {
+    const { data } = await api.get<{ servers: ManagedServer[] }>('/admin/users/manage/servers');
+    return data.servers;
+  },
+  async setAutoJoin(serverId: string, enabled: boolean) {
+    await api.patch(`/admin/users/manage/servers/${serverId}/auto-join`, { enabled });
+  },
+  async bulkPreview(body: BulkMembershipBody) {
+    const { data } = await api.post<{ matched: number; alreadyInTarget: number }>(
+      '/admin/users/manage/membership/bulk',
+      { ...body, dryRun: true },
+    );
+    return data;
+  },
+  async bulkApply(body: BulkMembershipBody) {
+    const { data } = await api.post<BulkMembershipResult>('/admin/users/manage/membership/bulk', body);
+    return data;
   },
 };
 

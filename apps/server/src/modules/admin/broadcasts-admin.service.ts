@@ -54,7 +54,7 @@ export async function sendAdminMassDm(actorId: string, title: string, body: stri
 
 export async function sendAdminPlatformAnnouncement(
   actorId: string,
-  input: { title: string; body: string; severity: string },
+  input: { title: string; body: string; severity: string; requireAck?: boolean },
 ) {
   const announcement = await prisma.announcement.create({
     data: {
@@ -62,6 +62,7 @@ export async function sendAdminPlatformAnnouncement(
       body: input.body.trim(),
       severity: input.severity,
       authorId: actorId,
+      requireAck: input.requireAck ?? false,
     },
     include: { author: { include: { team: true } } },
   });

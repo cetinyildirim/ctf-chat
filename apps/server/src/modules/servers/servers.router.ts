@@ -27,6 +27,7 @@ import { assertServerPermission } from '../../lib/server-permissions.js';
 import { assertPlatformAdminForServer } from '../../lib/server-admin-scope.js';
 import { ctfdScoreboardUrl, fetchCtfdScoreboard, isCtfdConfigured } from '../../lib/ctfd-client.js';
 import { getServerScoreboard, getServerSolveTimeline } from '../scoreboard/scoreboard.service.js';
+import { notifyServerBanned, notifyServerUnbanned } from '../../lib/moderation-notify.js';
 
 const router: Router = Router();
 router.use(requireAuth);
@@ -571,6 +572,12 @@ router.post(
         meta: { userId: targetUserId, username: member.user.username, reason: body.reason ?? null },
       });
       emitChannelsRefresh(serverId);
+      const server = await prisma.chatServer.findUnique({ where: { id: serverId }, select: { name: true } });
+      await notifyServerBanned(targetUserId, {
+        serverId,
+        serverName: server?.name ?? serverId,
+        reason: body.reason?.trim() || null,
+      });
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -606,6 +613,8 @@ router.delete('/:id/members/:userId/ban', validate(memberUserParams, 'params'), 
       meta: { userId: targetUserId, username: member.user.username },
     });
     emitChannelsRefresh(serverId);
+    const server = await prisma.chatServer.findUnique({ where: { id: serverId }, select: { name: true } });
+    await notifyServerUnbanned(targetUserId, { serverId, serverName: server?.name ?? serverId });
     res.json({ ok: true });
   } catch (err) {
     next(err);

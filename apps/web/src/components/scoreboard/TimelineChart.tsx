@@ -12,6 +12,7 @@ import {
   Legend,
 } from 'recharts';
 import { format } from 'date-fns';
+import { useI18n } from '@/components/providers/LocaleProvider';
 import type { ScoreboardEntry, SolveTimelinePoint } from '@sydt/shared';
 
 interface Props {
@@ -25,6 +26,7 @@ interface SeriesPoint {
 }
 
 export function TimelineChart({ points, entries }: Props) {
+  const { t } = useI18n();
   const top = entries.slice(0, 5);
 
   const series = React.useMemo<SeriesPoint[]>(() => {
@@ -48,7 +50,7 @@ export function TimelineChart({ points, entries }: Props) {
 
   if (top.length === 0) {
     return (
-      <div className="grid h-72 place-items-center text-sm text-muted-fg">No solves yet.</div>
+      <div className="grid h-72 place-items-center text-sm text-muted-fg">{t.timelineNoSolves}</div>
     );
   }
 

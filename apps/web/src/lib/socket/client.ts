@@ -5,12 +5,19 @@ export type SydtSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 let socket: SydtSocket | null = null;
 
+/**
+ * Browser sockets must use the page origin (nginx / Next rewrite → API).
+ * Baking NEXT_PUBLIC_API_ORIGIN (often http://localhost:4000) into the client
+ * breaks production: REST still works via `/api`, but live toast/sound never fire.
+ */
+function socketOrigin(): string {
+  if (typeof window !== 'undefined') return window.location.origin;
+  return process.env.NEXT_PUBLIC_API_ORIGIN ?? 'http://localhost:4000';
+}
+
 export function getSocket(): SydtSocket {
   if (socket) return socket;
-  const apiOrigin =
-    process.env.NEXT_PUBLIC_API_ORIGIN ??
-    (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4000');
-  socket = io(apiOrigin, {
+  socket = io(socketOrigin(), {
     withCredentials: true,
     path: '/socket.io',
     transports: ['websocket', 'polling'],

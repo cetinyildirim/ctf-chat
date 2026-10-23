@@ -1,0 +1,27 @@
+[Unit]
+Description=SYDT Chat Web (Next.js)
+After=network.target sydt-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sydt
+Group=sydt
+WorkingDirectory=/opt/sydt-chat/apps/web
+Environment=NODE_ENV=production
+# Build sırasında gömülen NEXT_PUBLIC_* değerleri .next içinde kalır;
+# çalışma anında yalnızca sunucu tarafı JWT gerekebilir:
+EnvironmentFile=-/opt/sydt-chat/apps/web/.env.production
+ExecStart=/usr/bin/pnpm start
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sydt-chat/apps/web
+
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

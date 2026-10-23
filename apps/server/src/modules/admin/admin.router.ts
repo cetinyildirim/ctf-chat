@@ -15,6 +15,7 @@ import type { ActivityBucket, AuditLogEntry, KPISnapshot } from '@sydt/shared';
 import teamsAdminRouter from './teams-admin.router.js';
 import surveysAdminRouter from './surveys-admin.router.js';
 import usersAdminRouter from './users-admin.router.js';
+import usersManageRouter from './users-manage.router.js';
 import {
   getPlatformBranding,
   getRegistrationSettings,
@@ -26,6 +27,7 @@ import {
 import broadcastsAdminRouter from './broadcasts-admin.router.js';
 import reportsAdminRouter from './reports-admin.router.js';
 import pagesAdminRouter from './pages-admin.router.js';
+import backupsAdminRouter from './backups-admin.router.js';
 import { validate } from '../../middleware/validate.js';
 import { schemas } from '@sydt/shared';
 import { audit } from '../../lib/audit.js';
@@ -256,9 +258,11 @@ router.get('/audit', requirePermission(Permission.AUDIT_LOG_VIEW), async (req, r
 });
 
 router.use('/surveys', surveysAdminRouter);
+router.use('/users/manage', usersManageRouter);
 router.use('/users', usersAdminRouter);
 router.use('/reports', reportsAdminRouter);
 router.use('/broadcasts', broadcastsAdminRouter);
+router.use('/backups', backupsAdminRouter);
 
 router.get('/settings/branding', async (_req, res, next) => {
   try {

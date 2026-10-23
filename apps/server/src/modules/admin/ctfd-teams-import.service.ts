@@ -319,7 +319,7 @@ export async function previewCtfdTeamsCsv(csvText: string, serverId: string): Pr
   };
 }
 
-function generatePassword(): string {
+export function generatePassword(): string {
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const lower = 'abcdefghjkmnpqrstuvwxyz';
   const digits = '23456789';

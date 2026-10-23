@@ -3,12 +3,12 @@
 import * as React from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Permission } from '@sydt/shared';
+import { Permission, Role } from '@sydt/shared';
 import {
   LayoutDashboard,
   Settings2,
   ShieldAlert,
-  ImageIcon,
+  DatabaseBackup,
   ChevronUp,
   ChevronDown,
   Trash2,
@@ -21,7 +21,9 @@ import {
   Megaphone,
   Palette,
   FileText,
+  UserCog,
 } from 'lucide-react';
+import { AdminUsersSection } from '@/components/admin/users/AdminUsersSection';
 import { ColorPalettePicker } from '@/components/common/ColorPalettePicker';
 import { MemberUserSuggest } from '@/components/common/MemberUserSuggest';
 import { AdminModerationSection } from '@/components/admin/AdminModerationSection';
@@ -31,6 +33,7 @@ import { usePlatformBranding } from '@/components/providers/PlatformBrandingProv
 import { AdminAuditSection } from '@/components/admin/AdminAuditSection';
 import { AdminSurveysSection } from '@/components/admin/AdminSurveysSection';
 import { AdminPagesSection } from '@/components/admin/AdminPagesSection';
+import { AdminBackupsSection } from '@/components/admin/AdminBackupsSection';
 import { TopBar } from '@/components/layout/TopBar';
 import { GlassPanel } from '@/components/common/GlassPanel';
 import { Button } from '@/components/ui/button';
@@ -57,6 +60,8 @@ const VALID_TABS = new Set([
   'moderation',
   'branding',
   'comms',
+  'backups',
+  'users',
 ]);
 
 export function AdminDashboard() {
@@ -77,6 +82,7 @@ export function AdminDashboard() {
   const canDash = !!me?.permissions.includes(Permission.ADMIN_DASHBOARD);
   const canTeams = !!me?.permissions.includes(Permission.TEAM_MANAGE);
   const canAudit = !!me?.permissions.includes(Permission.AUDIT_LOG_VIEW);
+  const canBackup = me?.role === Role.SUPER_ADMIN;
   const canModerate =
     !!me?.permissions.includes(Permission.USER_BAN) ||
     !!me?.permissions.includes(Permission.USER_MUTE) ||
@@ -97,8 +103,11 @@ export function AdminDashboard() {
     else if (tab === 'teams' && !canTeams) setTab('overview');
     else if (tab === 'audit' && !canAudit) setTab('overview');
     else if (tab === 'moderation' && !canModerate) setTab('overview');
-    else if ((tab === 'branding' || tab === 'comms' || tab === 'pages') && !canDash) setTab('overview');
-  }, [allowed, tab, canDash, canTeams, canAudit, canModerate, setTab]);
+    else if (tab === 'backups' && !canBackup) setTab('overview');
+    else if ((tab === 'branding' || tab === 'comms' || tab === 'pages' || tab === 'users') && !canDash) {
+      setTab('overview');
+    }
+  }, [allowed, tab, canDash, canTeams, canAudit, canModerate, canBackup, setTab]);
 
   if (!allowed) {
     return (
@@ -111,6 +120,7 @@ export function AdminDashboard() {
 
   const nav = [
     { id: 'overview' as const, label: t.adminMenuOverview, icon: LayoutDashboard, show: true },
+    { id: 'users' as const, label: t.adminMenuUsers, icon: UserCog, show: canDash },
     { id: 'teams' as const, label: t.adminMenuTeams, icon: Users, show: canTeams },
     { id: 'system' as const, label: t.adminMenuSystem, icon: Settings2, show: canDash },
     { id: 'branding' as const, label: t.adminMenuBranding, icon: Palette, show: canDash },
@@ -119,6 +129,7 @@ export function AdminDashboard() {
     { id: 'pages' as const, label: t.adminMenuPages, icon: FileText, show: canDash },
     { id: 'moderation' as const, label: t.adminMenuModeration, icon: ShieldBan, show: canModerate },
     { id: 'audit' as const, label: t.adminMenuAudit, icon: ScrollText, show: canAudit },
+    { id: 'backups' as const, label: t.adminMenuBackups, icon: DatabaseBackup, show: canBackup },
   ].filter((x) => x.show);
 
   return (
@@ -151,6 +162,7 @@ export function AdminDashboard() {
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
           {tab === 'overview' ? <OverviewSection /> : null}
+          {tab === 'users' && canDash ? <AdminUsersSection /> : null}
           {tab === 'teams' && canTeams ? <TeamsAdminPanel /> : null}
           {tab === 'system' && canDash ? <SystemSection /> : null}
           {tab === 'branding' && canDash ? <AdminBrandingSection /> : null}
@@ -159,6 +171,7 @@ export function AdminDashboard() {
           {tab === 'pages' && canDash ? <AdminPagesSection /> : null}
           {tab === 'moderation' && canModerate ? <AdminModerationSection /> : null}
           {tab === 'audit' && canAudit ? <AdminAuditSection /> : null}
+          {tab === 'backups' && canBackup ? <AdminBackupsSection /> : null}
         </div>
       </div>
     </div>
@@ -699,14 +712,6 @@ function SystemSection() {
           <li>{t.adminSystemOpsRbac}</li>
           <li>{t.adminSystemOpsFiles}</li>
         </ul>
-      </GlassPanel>
-
-      <GlassPanel className="space-y-3 border-dashed border-amber-400/30 p-6">
-        <div className="flex items-center gap-2 text-amber-200/90">
-          <ImageIcon className="h-4 w-4" />
-          <span className="text-sm font-medium">{t.adminSystemFuture}</span>
-        </div>
-        <p className="text-sm text-fg-subtle">{t.adminSystemFutureBody}</p>
       </GlassPanel>
     </div>
   );

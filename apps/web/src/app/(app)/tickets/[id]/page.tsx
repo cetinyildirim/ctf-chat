@@ -176,9 +176,27 @@ export default function TicketDetailPage() {
   const isClosed = ticket.status === 'CLOSED' || ticket.status === 'RESOLVED';
   const canReopen = isClosed;
 
-  const post = () => {
-    if (!draft.trim()) return;
-    commentMutation.mutate({ body: draft.trim(), internal: tab === 'internal' });
+  const reopenMode = isClosed && tab === 'thread' && !viewer?.canViewAll;
+
+  const submitDraft = () => {
+    const body = draft.trim();
+    if (!body) return;
+    if (reopenMode) {
+      if (body.length < 10 || reopenMutation.isPending) return;
+      reopenMutation.mutate(body);
+      return;
+    }
+    if (commentMutation.isPending) return;
+    commentMutation.mutate({ body, internal: tab === 'internal' });
+  };
+
+  const onDraftKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      submitDraft();
+    }
   };
 
   const threadEvents = events.filter((e) => e.type !== 'INTERNAL_NOTE');
@@ -249,6 +267,7 @@ export default function TicketDetailPage() {
             <Textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onDraftKeyDown}
               rows={Math.min(6, Math.max(2, draft.split('\n').length))}
               placeholder={
                 tab === 'internal'
@@ -259,10 +278,10 @@ export default function TicketDetailPage() {
               }
               className="border-0 bg-transparent focus-visible:ring-0"
             />
-            {canReopen && tab === 'thread' && !viewer?.canViewAll ? (
+            {reopenMode ? (
               <Button
                 variant="primary"
-                onClick={() => draft.trim() && reopenMutation.mutate(draft.trim())}
+                onClick={submitDraft}
                 disabled={draft.trim().length < 10 || reopenMutation.isPending}
                 className="self-end"
               >
@@ -276,7 +295,7 @@ export default function TicketDetailPage() {
             ) : (
               <Button
                 variant="primary"
-                onClick={post}
+                onClick={submitDraft}
                 disabled={!draft.trim() || commentMutation.isPending}
                 className="self-end"
               >

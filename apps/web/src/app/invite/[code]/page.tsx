@@ -115,7 +115,7 @@ export default function InvitePage() {
           ) : null}
           {invite.expiresAt && !invite.expired ? (
             <p className="mt-2 text-xs text-muted-fg">
-              {t.inviteExpiresHint.replace('{{date}}', new Date(invite.expiresAt).toLocaleString())}
+              {t.inviteExpiresHint.replace('{{date}}', new Date(invite.expiresAt).toLocaleString(t.dateLocale))}
             </p>
           ) : null}
         </div>

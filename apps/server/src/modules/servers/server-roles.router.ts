@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Role, permissionsFor, schemas, parseServerPermissions } from '@sydt/shared';
+import {
+  Permission,
+  Role,
+  SERVER_PERM_KEYS,
+  permissionsFor,
+  schemas,
+  parseServerPermissions,
+} from '@sydt/shared';
 import type { ServerRole as ServerRoleDto } from '@sydt/shared';
 import { prisma } from '../../prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
@@ -11,6 +18,7 @@ import {
   assertServerPermission,
   assertCanAssignServerRoles,
   canManageServerRoles,
+  getEffectiveServerPermissions,
 } from '../../lib/server-permissions.js';
 import { revokeAllRefreshTokens } from '../../lib/revoke-sessions.js';
 import { ensureServerDefaultRole } from '../../lib/ensure-server-default-role.js';
@@ -52,6 +60,22 @@ function serializeRole(
     memberCount,
   };
 }
+
+router.get('/my-permissions', validate(idSchema, 'params'), async (req, res, next) => {
+  try {
+    const serverId = req.params.id!;
+    const me = req.user!;
+    if (platformPerms(me.role).includes(Permission.ADMIN_DASHBOARD)) {
+      res.json({ permissions: [...SERVER_PERM_KEYS] });
+      return;
+    }
+    await requireServerMember(me.id, serverId);
+    const perms = await getEffectiveServerPermissions(me.id, serverId);
+    res.json({ permissions: [...perms] });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/roles', validate(idSchema, 'params'), async (req, res, next) => {
   try {

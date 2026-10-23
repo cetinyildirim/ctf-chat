@@ -43,7 +43,7 @@ export function MentionAutocomplete({
 
   if (isFetching && users.length === 0) {
     return (
-      <div className="absolute bottom-full left-0 z-30 mb-1 w-64 rounded-lg border border-white/10 bg-[#1e1f22] p-2 text-xs text-muted-fg shadow-xl">
+      <div className="absolute bottom-full left-0 z-30 mb-1 w-64 rounded-lg border border-border bg-bg p-2 text-xs text-muted-fg shadow-xl">
         …
       </div>
     );
@@ -52,7 +52,7 @@ export function MentionAutocomplete({
   if (users.length === 0) return null;
 
   return (
-    <ul className="absolute bottom-full left-0 z-30 mb-1 max-h-48 w-72 overflow-y-auto rounded-lg border border-white/10 bg-[#1e1f22] py-1 shadow-xl">
+    <ul className="absolute bottom-full left-0 z-30 mb-1 max-h-48 w-72 overflow-y-auto rounded-lg border border-border bg-bg py-1 shadow-xl">
       {users.map((u, i) => (
         <li key={u.id}>
           <button

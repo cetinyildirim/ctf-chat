@@ -58,6 +58,18 @@ export async function assertChannelServerPermission(
   await assertServerPermission(user.id, channel.serverId, key, permissionsFor(user.role));
 }
 
+/** Staff, or `manageMessages` on the channel's server, may pin and delete others' messages. */
+export async function canModerateChannelMessages(
+  user: AuthUser,
+  channel: { serverId: string | null },
+  platformPermission: Permission,
+): Promise<boolean> {
+  if (permissionsFor(user.role).includes(platformPermission)) return true;
+  if (!channel.serverId) return false;
+  const perms = await getEffectiveServerPermissions(user.id, channel.serverId);
+  return perms.has('manageMessages');
+}
+
 export async function canManageServerRoles(
   userId: string,
   serverId: string,

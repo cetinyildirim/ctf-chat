@@ -6,6 +6,8 @@
  */
 
 import * as React from 'react';
+import type { Locale } from '@/i18n/dict';
+import { getCurrentLocale } from '@/i18n/current-locale';
 
 const IPV4 = /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g;
 const URL_RE = /\bhttps?:\/\/[^\s<>"`]+/g;
@@ -70,17 +72,29 @@ const classByType: Record<Token['type'], string> = {
   mention: 'rounded bg-accent-cyan/10 px-0.5 font-medium text-accent-cyan',
 };
 
-const titleByType: Record<Token['type'], string | undefined> = {
-  text: undefined,
-  ip: 'IP address',
-  hash: 'Hash',
-  url: 'URL',
-  cve: 'CVE identifier',
-  domain: 'Domain',
-  mention: 'Mention',
+const titlesByLocale: Record<Locale, Record<Token['type'], string | undefined>> = {
+  en: {
+    text: undefined,
+    ip: 'IP address',
+    hash: 'Hash',
+    url: 'URL',
+    cve: 'CVE identifier',
+    domain: 'Domain',
+    mention: 'Mention',
+  },
+  tr: {
+    text: undefined,
+    ip: 'IP adresi',
+    hash: 'Özet (hash)',
+    url: 'Bağlantı',
+    cve: 'CVE tanımlayıcısı',
+    domain: 'Alan adı',
+    mention: 'Bahsetme',
+  },
 };
 
 export function highlightText(text: string, keyPrefix = 'h'): React.ReactNode[] {
+  const titleByType = titlesByLocale[getCurrentLocale()];
   const tokens = tokenize(text);
   return tokens.map((t, i) => {
     if (t.type === 'text') return <React.Fragment key={`${keyPrefix}-${i}`}>{t.value}</React.Fragment>;

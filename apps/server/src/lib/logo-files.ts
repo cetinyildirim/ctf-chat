@@ -50,7 +50,8 @@ export async function writeLogoFile(
   await removeLogoFiles(kind, id);
   const dest = path.join(dir, `${id}${ext}`);
   await fs.writeFile(dest, buffer);
-  return publicLogoPath(kind, id);
+  // The path is stable per entity and browsers cache it, so each upload gets a new URL.
+  return `${publicLogoPath(kind, id)}?v=${Date.now().toString(36)}`;
 }
 
 export async function resolveLogoFile(

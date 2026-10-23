@@ -60,8 +60,8 @@ export function AvatarWithStatus({
         className="absolute bottom-0 right-0 z-10"
       />
       {showTeamBadge && team ? (
-        <span className="absolute bottom-0 left-0 z-[9] size-4 overflow-hidden rounded-[3px]">
-          <TeamMark team={team} size="xs" className="!h-full !w-full !rounded-[3px]" />
+        <span className="absolute -bottom-0.5 -left-0.5 z-[9] size-4 overflow-hidden rounded-full bg-bg ring-2 ring-bg">
+          <TeamMark team={team} size="xs" className="!h-full !w-full !rounded-full !ring-0" />
         </span>
       ) : null}
     </div>

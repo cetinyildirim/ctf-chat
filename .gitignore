@@ -26,3 +26,7 @@ apps/server/dev.db
 apps/server/dev.db-journal
 # Uploads
 apps/server/uploads/
+# Deploy staging folder (local copy for server transfer)
+SUNUCU/
+
+SUNUCU3/

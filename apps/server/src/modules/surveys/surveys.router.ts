@@ -23,8 +23,10 @@ const surveyInclude = {
 router.get('/pending', async (req, res, next) => {
   try {
     const userId = req.user!.id;
+    const account = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { createdAt: true } });
+    // Surveys that predate the account are not pushed to newcomers.
     const active = await prisma.survey.findMany({
-      where: { isActive: true },
+      where: { isActive: true, createdAt: { gte: account.createdAt } },
       include: surveyInclude,
       orderBy: { createdAt: 'asc' },
     });

@@ -5,7 +5,6 @@ import { ChevronDown, ChevronUp, Terminal } from 'lucide-react';
 import { useI18n } from '@/components/providers/LocaleProvider';
 import type { Dict } from '@/i18n/dict';
 import { previewMessageFormat } from '@/lib/chat/message-format-preview';
-import { cn } from '@/lib/utils';
 
 type HelpRow = {
   title: string;
@@ -55,11 +54,10 @@ function buildRows(t: Dict): HelpRow[] {
   ];
 }
 
-export function MessageComposerHelp({ draft }: { draft: string }) {
+export function MessageComposerHelp() {
   const { t } = useI18n();
   const [open, setOpen] = React.useState(false);
   const rows = React.useMemo(() => buildRows(t), [t]);
-  const deferredDraft = React.useDeferredValue(draft);
 
   return (
     <div className="relative mb-2">
@@ -139,21 +137,6 @@ export function MessageComposerHelp({ draft }: { draft: string }) {
               </div>
             ))}
           </div>
-
-          {deferredDraft.trim() ? (
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-fg">
-                {t.composerPreviewLabel}
-              </div>
-              <p className="mt-0.5 text-[11px] text-fg-subtle">{t.composerPreviewHint}</p>
-              <div
-                className={cn(
-                  'mt-1 rounded-md border border-accent-cyan/20 bg-accent-cyan/5 p-2 text-sm leading-relaxed',
-                )}
-                dangerouslySetInnerHTML={{ __html: previewMessageFormat(deferredDraft) }}
-              />
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>

@@ -211,10 +211,10 @@ export function ServerSettingsDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[88] bg-black/75 backdrop-blur-sm" />
-        <Dialog.Content className="fixed inset-3 z-[89] flex overflow-hidden rounded-xl border border-white/10 bg-[#1e1f22] shadow-2xl outline-none md:inset-6 lg:inset-8">
+        <Dialog.Content className="fixed inset-3 z-[89] flex overflow-hidden rounded-xl border border-border bg-bg shadow-2xl outline-none md:inset-6 lg:inset-8">
           <Dialog.Title className="sr-only">{t.serverSettingsTitle}</Dialog.Title>
-          <div className="flex w-56 shrink-0 flex-col border-r border-white/8 bg-[#161719]">
-            <div className="border-b border-white/8 px-4 py-3 text-sm font-semibold text-fg">{server.name}</div>
+          <div className="flex w-56 shrink-0 flex-col border-r border-border bg-bg-deep">
+            <div className="border-b border-border px-4 py-3 text-sm font-semibold text-fg">{server.name}</div>
             <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
               {NAV.map(({ id, icon: Icon }) => (
                 <button
@@ -223,7 +223,7 @@ export function ServerSettingsDialog({
                   onClick={() => setTab(id)}
                   className={cn(
                     'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm',
-                    tab === id ? 'bg-white/10 text-fg' : 'text-fg-subtle hover:bg-white/5',
+                    tab === id ? 'bg-muted text-fg' : 'text-fg-subtle hover:bg-muted/70 hover:text-fg',
                   )}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
@@ -242,11 +242,11 @@ export function ServerSettingsDialog({
             </button>
           </div>
 
-          <div className="flex min-w-0 flex-1 flex-col">
-            <div className="flex items-center justify-between border-b border-white/8 px-6 py-4">
+          <div className="flex min-w-0 flex-1 flex-col bg-bg">
+            <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h2 className="text-lg font-semibold text-fg">{t[`serverTab_${tab}` as keyof typeof t] as string}</h2>
               <Dialog.Close asChild>
-                <button type="button" className="rounded-full border border-white/10 p-2 text-muted-fg hover:bg-white/5">
+                <button type="button" className="rounded-full border border-border p-2 text-muted-fg hover:bg-muted hover:text-fg">
                   <X className="h-4 w-4" />
                 </button>
               </Dialog.Close>
@@ -283,12 +283,12 @@ export function ServerSettingsDialog({
                     </div>
                   </div>
                   {canManageServer ? (
-                    <div className="flex items-start justify-between gap-4 rounded-lg border border-white/10 bg-white/[0.02] p-4">
+                    <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-panel/80 p-4">
                       <div className="min-w-0 flex-1">
-                        <Label htmlFor="require-pwd-change" className="text-sm font-medium text-fg">
+                        <Label htmlFor="require-pwd-change" className="text-sm font-medium normal-case tracking-normal text-fg">
                           {t.serverRequirePasswordChange}
                         </Label>
-                        <p className="mt-1 text-xs text-fg-subtle">{t.serverRequirePasswordChangeHint}</p>
+                        <p className="mt-1 text-xs text-muted-fg">{t.serverRequirePasswordChangeHint}</p>
                       </div>
                       <Switch
                         id="require-pwd-change"

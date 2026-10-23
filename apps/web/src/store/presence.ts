@@ -1,5 +1,8 @@
 import { create } from 'zustand';
-import type { UserStatus } from '@sydt/shared';
+import { TYPING_TTL_MS, type UserStatus } from '@sydt/shared';
+
+/** A lost typing:stop must never leave "is typing" stuck on screen. */
+const typingExpiry = new Map<string, ReturnType<typeof setTimeout>>();
 
 export interface Presence {
   status: UserStatus;
@@ -27,13 +30,27 @@ export const usePresenceStore = create<PresenceState>((set, get) => ({
     }),
   upsertPresence: (userId, status, lastSeen) =>
     set((s) => ({ presences: { ...s.presences, [userId]: { status, lastSeen } } })),
-  setTyping: (channelId, userId, isTyping) =>
+  setTyping: (channelId, userId, isTyping) => {
+    const timerKey = `${channelId}:${userId}`;
+    const pending = typingExpiry.get(timerKey);
+    if (pending) clearTimeout(pending);
+    typingExpiry.delete(timerKey);
+    if (isTyping) {
+      typingExpiry.set(
+        timerKey,
+        setTimeout(() => get().setTyping(channelId, userId, false), TYPING_TTL_MS),
+      );
+    }
     set((s) => {
-      const current = new Set(s.typingByChannel[channelId] ?? []);
+      const prev = s.typingByChannel[channelId];
+      const already = prev?.has(userId) ?? false;
+      if (isTyping === already) return s;
+      const current = new Set(prev ?? []);
       if (isTyping) current.add(userId);
       else current.delete(userId);
       return { typingByChannel: { ...s.typingByChannel, [channelId]: current } };
-    }),
+    });
+  },
   isOnline: (userId) => {
     const p = get().presences[userId];
     return !!p && p.status !== 'OFFLINE';

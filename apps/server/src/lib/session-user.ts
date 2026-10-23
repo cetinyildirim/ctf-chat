@@ -1,5 +1,5 @@
 import type { SessionUser } from '@sydt/shared';
-import { permissionsFor } from '@sydt/shared';
+import { PLATFORM_PASSWORD_RESET_ID, permissionsFor } from '@sydt/shared';
 import { prisma } from '../prisma.js';
 import { Unauthorized } from './http-error.js';
 import { serializeUser } from '../modules/serializers.js';
@@ -30,6 +30,9 @@ export async function buildSessionUser(userId: string): Promise<SessionUser> {
     locale,
     theme,
     defaultNotifyMode,
-    mustChangePasswordServerIds: pendingPwd.map((r) => r.serverId),
+    mustChangePasswordServerIds: [
+      ...(withTeam.mustChangePassword ? [PLATFORM_PASSWORD_RESET_ID] : []),
+      ...pendingPwd.map((r) => r.serverId),
+    ],
   };
 }

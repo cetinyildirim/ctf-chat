@@ -74,7 +74,7 @@ export function ServerSettingsEmojisPanel({ serverId }: { serverId: string }) {
 
       <div className="flex flex-wrap gap-6">
         <div className="text-center">
-          <div className="mx-auto grid h-24 w-24 place-items-center overflow-hidden rounded-full border border-white/10 bg-[#111214]">
+          <div className="mx-auto grid h-24 w-24 place-items-center overflow-hidden rounded-full border border-border bg-bg-deep">
             {preview ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={preview} alt="" className="h-full w-full object-contain" />

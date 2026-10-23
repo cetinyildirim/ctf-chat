@@ -1,5 +1,7 @@
 # SYDT — CTF Operations Chat Platform
 
+GitHub repository name: **CTF Chat** (`ctf-chat`). The application title inside the product stays SYDT.
+
 A production-grade realtime communication platform built for cyber-security CTF operations. Discord-style channels, granular RBAC, live scoreboard, support tickets, incident management, and a polished cyber/neon dark UI — all wired to a real Socket.IO realtime layer with seeded demo data.
 
 > Full-stack TypeScript monorepo. **Phase 1 + Realtime slice** as defined in the design plan.
@@ -56,6 +58,35 @@ pnpm dev
 | Health  | http://localhost:4000/health |
 
 > The web port is `3100` (not 3000) to avoid conflicts with other dev servers; the API CORS origin is preconfigured to match in `apps/server/.env`.
+
+### Hızlı başlangıç
+
+Gerekenler: **Node.js 20+** ve **pnpm 9.15.0**.
+
+```bash
+corepack enable
+corepack prepare pnpm@9.15.0 --activate
+pnpm install
+cp apps/server/.env.example apps/server/.env
+cp apps/web/.env.local.example apps/web/.env.local
+```
+
+`apps/server/.env` içindeki `JWT_ACCESS_SECRET` ve `JWT_REFRESH_SECRET` değerlerini en az 32 karakterlik, birbirinden farklı dizeler yapın. `apps/web/.env.local` içindeki `JWT_ACCESS_SECRET` sunucudaki erişim sırrıyla aynı olmalıdır.
+
+```bash
+pnpm db:generate
+pnpm db:migrate
+pnpm seed
+pnpm dev
+```
+
+| Servis | Adres |
+| --- | --- |
+| Web | http://localhost:3100 |
+| API | http://localhost:4000/api |
+| Sağlık | http://localhost:4000/health |
+
+Girişte kullanıcı adı veya `<kullanici>@sydt.local` e-postası kullanılır. Tohum hesapları yukarıdaki demo tablosuyladır. Üretimde `NODE_ENV=production`, `COOKIE_SECURE=true` ve `CORS_ORIGIN` tam site adresi olmalıdır. Şema için `pnpm db:push` yerine `pnpm db:migrate` kullanın.
 
 ---
 
@@ -158,18 +189,121 @@ The web client sends a double-submit CSRF token (`X-CSRF-Token`) on mutating req
 
 ---
 
-## Deferred to the next phase
+## Features / Özellikler
 
-These were intentionally stubbed or scoped out for Phase 1 — placeholders are visible in the UI so the gaps are obvious:
+Screenshots below come from a fresh `pnpm seed` database. People, teams, messages, tickets and incidents are fictional demo records (`@sydt.local`). They are not production data.
 
-- **Voice channels** — placeholder card; no WebRTC media yet.
-- **Incident detail page** — list ships; standalone `/incidents/[id]` deferred.
-- **Drag-and-drop channel reordering** — sidebar renders categories/channels; reorder mutation deferred.
-- **Service-worker push** — in-app sound, toasts, and browser `Notification` API ship; SW-driven push deferred.
-- **Per-user notification preferences UI** — store + DND/sound toggles ship; dedicated settings page deferred.
-- **Admin sub-pages** — `/admin` overview ships; user/team/channel/role management + moderation queue + spam rules + system health get standalone pages in Phase 2.
-- **File uploads** — implemented: `POST /api/channels/:channelId/messages` accepts `multipart/form-data` (`content`, optional `replyToId`, `files[]`). Files are stored under `UPLOAD_DIR` and served at `GET /api/files/:attachmentId` (cookie auth + channel access). Client: composer paperclip / drag-and-drop.
-- **Message search index** — full-text search beyond client-side filtering.
+Aşağıdaki görüntüler temiz bir `pnpm seed` veritabanından alındı. Kişiler, takımlar, mesajlar, talepler ve olaylar kurgusal demo kayıtlarıdır (`@sydt.local`). Üretim verisi içermez.
+
+### Sign in / Giriş
+
+Argon2 passwords, short-lived access JWT and rotating refresh JWT in httpOnly cookies, double-submit CSRF, forced password change, and disabled accounts. Register, invite links and the acceptable-use policy are part of the same flow. The interface is Turkish and English.
+
+Argon2 parola, httpOnly çerezlerde kısa ömürlü erişim JWT’si ve dönen yenileme JWT’si, çift gönderimli CSRF, zorunlu parola değişimi ve pasif hesaplar. Kayıt, davet bağlantısı ve kullanım kuralları aynı akıştadır. Arayüz Türkçe ve İngilizcedir.
+
+![Sign in / Giriş](docs/screenshots/01-login.png)
+
+### Servers, channels and realtime chat / Sunucular, kanallar ve sohbet
+
+Multiple chat servers, categories, channel types (global, announcement, challenge, staff, team room, support), per-server roles and a permission matrix. Team rooms are provisioned per category. New users can be auto-joined.
+
+Chat is Socket.IO: virtualized history, markdown, highlighted code, IOC highlighting, mentions, reactions, replies, edit and delete, typing, presence, attachments and an in-page image lightbox (zoom; click outside to close).
+
+Birden fazla sohbet sunucusu, kategoriler, kanal türleri (genel, duyuru, görev, personel, takım odası, destek), sunucu rolleri ve yetki matrisi. Takım odaları kategori bazında açılır. Yeni kullanıcılar otomatik katılabilir.
+
+Sohbet Socket.IO üzerindedir: sanal kaydırılan geçmiş, markdown, vurgulu kod, IOC vurgusu, bahsetmeler, tepkiler, yanıt, düzenleme ve silme, yazıyor bilgisi, çevrimiçi durum, dosya ekleri ve sayfa içi resim penceresi (yakınlaştırma; dışarı tıklayınca kapanır).
+
+![Channel chat / Kanal sohbeti](docs/screenshots/04-channel.png)
+
+### Direct messages and friends / Özel mesaj ve arkadaşlar
+
+Direct conversations are separate from channel chat. Friend requests are searched among members of the active server.
+
+Özel konuşmalar kanal sohbetinden ayrıdır. Arkadaş isteği, aktif sunucunun üyeleri arasında aranır.
+
+![Direct messages / Özel mesajlar](docs/screenshots/05-messages.png)
+
+![Friends / Arkadaşlar](docs/screenshots/06-friends.png)
+
+### Challenges, scoreboard and teams / Görevler, skor ve takımlar
+
+Challenges carry category, difficulty, points, hints and a linked discussion channel. Solves update the demo score state. The live ranking page reads a configured CTFd API; with no CTFd connection it stays empty on purpose. Teams join with an invite code or are created in the server.
+
+Görevlerde kategori, zorluk, puan, ipucu ve bağlı tartışma kanalı vardır. Çözümler demo skor durumunu günceller. Canlı sıralama sayfası yapılandırılmış CTFd API’sini okur; CTFd bağlı değilken bilinçli olarak boş kalır. Takımlar davet koduyla katılır veya sunucuda oluşturulur.
+
+![Challenges / Görevler](docs/screenshots/08-challenges.png)
+
+![Scoreboard without CTFd / CTFd bağlı değilken skor](docs/screenshots/07-scoreboard.png)
+
+![Teams / Takımlar](docs/screenshots/09-team.png)
+
+### Tickets and incidents / Destek talepleri ve olaylar
+
+Tickets move through open, claimed, in progress, resolved and closed. Staff can set priority, category, assignee and internal notes, attach files and link related tickets. Incidents track severity and mitigation separately from player support.
+
+Talepler açık, üstlenildi, işlemde, çözüldü ve kapalı durumlarından geçer. Personel öncelik, kategori, atanan kişi ve iç not belirler, dosya ekler ve ilgili talepleri bağlar. Olaylar oyuncu desteğinden ayrı olarak önem ve giderme durumunu izler.
+
+![Ticket list / Talep listesi](docs/screenshots/10-tickets.png)
+
+![Ticket detail / Talep ayrıntısı](docs/screenshots/11-ticket.png)
+
+![Incidents / Olaylar](docs/screenshots/12-incidents.png)
+
+### Administration / Yönetim
+
+The admin area is permission-gated:
+
+- Overview of the active server
+- Users: profile, password set/reset, platform role, deactivate, create, filters, CSV, bulk add/move/remove of server membership, auto-join
+- Teams and CTFd team import
+- System settings, branding, announcements and broadcast DMs
+- Surveys with on-screen charts and an editable report exported to PDF
+- Custom pages, moderation, audit log, backups
+
+Yönetim alanı yetkiye bağlıdır:
+
+- Aktif sunucunun özeti
+- Kullanıcılar: profil, parola belirleme/sıfırlama, platform rolü, pasifleştirme, oluşturma, süzgeç, CSV, toplu sunucu üyeliği ekleme/taşıma/çıkarma, otomatik katılım
+- Takımlar ve CTFd takım içe aktarma
+- Sistem ayarları, marka, duyurular ve toplu özel mesaj
+- Ekrandaki grafiklerle anket ve düzenlenip PDF olarak alınan rapor
+- Sayfalar, moderasyon, işlem kaydı, yedekleme
+
+![Admin overview / Yönetim özeti](docs/screenshots/13-admin.png)
+
+![User management / Kullanıcı yönetimi](docs/screenshots/14-admin-users.png)
+
+### Notifications and profile / Bildirimler ve profil
+
+In-app notifications, announcement acknowledgement, browser notifications, sound and do-not-disturb. Profile holds display name, avatar, theme and channel notification level.
+
+Uygulama içi bildirimler, duyuru onayı, tarayıcı bildirimi, ses ve rahatsız etme. Profilde görünen ad, fotoğraf, tema ve kanal bildirim düzeyi vardır.
+
+![Notifications / Bildirimler](docs/screenshots/15-notifications.png)
+
+![Profile / Profil](docs/screenshots/16-settings.png)
+
+### Also included / Ayrıca
+
+- Command palette (`Ctrl/⌘ + K`)
+- Legal acceptable-use pages in Turkish and English
+- Optional ClamAV scan of uploads (fail-open)
+- Scheduled backups of the database and, optionally, uploads
+
+- Komut paleti (`Ctrl/⌘ + K`)
+- Türkçe ve İngilizce kullanım kuralları
+- Yüklemeler için isteğe bağlı ClamAV taraması (tarayıcı kapalıyken yükleme engellenmez)
+- Veritabanının ve istenirse yüklenen dosyaların zamanlanmış yedeği
+
+### Not in this build / Bu sürümde yok
+
+- Voice channels are a locked placeholder; there is no WebRTC call.
+- There is no server-side full-text message index beyond what the client filters.
+- Browser push via a service worker is not wired; in-app and browser notifications are.
+
+- Ses kanalları kilitli bir yer tutucudur; WebRTC görüşme yoktur.
+- İstemcinin süzdüğünün ötesinde sunucu tarafı tam metin mesaj dizini yoktur.
+- Service worker ile tarayıcı push bağlı değildir; uygulama içi ve tarayıcı bildirimleri vardır.
 
 ---
 

@@ -26,6 +26,7 @@ export function AdminCommsSection() {
   const [title, setTitle] = React.useState('');
   const [body, setBody] = React.useState('');
   const [severity, setSeverity] = React.useState<string>(IncidentSeverity.INFO);
+  const [requireAck, setRequireAck] = React.useState(false);
 
   const severityOptions = React.useMemo(
     () => [
@@ -73,11 +74,13 @@ export function AdminCommsSection() {
         title: title.trim(),
         body: body.trim(),
         severity: severity as IncidentSeverity,
+        requireAck,
       }),
     onSuccess: () => {
       toast.success(t.commsAnnouncementOk);
       setTitle('');
       setBody('');
+      setRequireAck(false);
       void invalidate();
     },
     onError: (err) => toast.error(unwrapApiError(err).message),
@@ -103,6 +106,15 @@ export function AdminCommsSection() {
           onChange={(e) => setBody(e.target.value)}
         />
         <p className="text-[12px] text-fg-subtle">{t.commsAnnounceRules}</p>
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-fg">
+          <input
+            type="checkbox"
+            className="accent-accent-cyan"
+            checked={requireAck}
+            onChange={(e) => setRequireAck(e.target.checked)}
+          />
+          {t.announcementRequireAck}
+        </label>
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"

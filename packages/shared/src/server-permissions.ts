@@ -1,5 +1,11 @@
 /** Per-server role permission keys (Discord-style server settings). */
 export const SERVER_PERM_KEYS = [
+  /** Grants every other key and full channel visibility on this server. */
+  'administrator',
+  'viewTeamChannels',
+  'viewStaffChannels',
+  'viewPrivateChannels',
+  'manageAnnouncements',
   'manageChannels',
   'manageServer',
   'managePermissions',
@@ -56,12 +62,16 @@ export function parseServerPermissions(json: string | null | undefined): ServerP
 
 /** Permission groups for server role editor UI. */
 export const SERVER_PERM_CATEGORIES: ReadonlyArray<{
-  id: 'server' | 'members' | 'channels' | 'messages' | 'roles' | 'profile';
+  id: 'access' | 'server' | 'members' | 'channels' | 'messages' | 'roles' | 'profile';
   keys: readonly ServerPermKey[];
 }> = [
   {
+    id: 'access',
+    keys: ['administrator', 'viewTeamChannels', 'viewStaffChannels', 'viewPrivateChannels'],
+  },
+  {
     id: 'server',
-    keys: ['manageServer', 'manageCustomization', 'viewChannel', 'connect'],
+    keys: ['manageServer', 'manageCustomization', 'manageAnnouncements', 'viewChannel', 'connect'],
   },
   {
     id: 'members',
@@ -95,6 +105,9 @@ export function mergeServerPermissions(maps: ServerPermissionsMap[]): ServerPerm
   const out: ServerPermissionsMap = {};
   for (const key of SERVER_PERM_KEYS) {
     if (maps.some((m) => m[key] === true)) out[key] = true;
+  }
+  if (out.administrator) {
+    for (const key of SERVER_PERM_KEYS) out[key] = true;
   }
   return out;
 }

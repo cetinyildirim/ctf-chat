@@ -22,7 +22,18 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   UPLOAD_DIR: z.string().default('uploads'),
   UPLOAD_MAX_MB: z.coerce.number().positive().max(500).default(100),
+  /** Backup archives; keep it outside UPLOAD_DIR and off the web root. */
+  BACKUP_DIR: z.string().default('backups'),
   SERVER_INVITE_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(7),
+  CLAMAV_ENABLED: z
+    .union([z.literal('true'), z.literal('false'), z.boolean()])
+    .transform((v) => v === true || v === 'true')
+    .default(false),
+  /** Unix socket of clamd; ignored when CLAMAV_HOST is set. */
+  CLAMAV_SOCKET: z.string().default('/var/run/clamav/clamd.ctl'),
+  CLAMAV_HOST: z.string().optional().default(''),
+  CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+  CLAMAV_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -73,27 +73,27 @@ export function SurveyGate() {
           )}
         />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-[81] flex max-h-[min(90vh,42rem)] w-[min(96vw,32rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border/80 bg-bg-elev shadow-2xl"
+          className="fixed left-1/2 top-1/2 z-[81] flex max-h-[min(94vh,58rem)] w-[min(96vw,72rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border/80 bg-bg-elev shadow-2xl"
           onPointerDownOutside={(e) => blocking && e.preventDefault()}
           onEscapeKeyDown={(e) => blocking && e.preventDefault()}
         >
-          <div className="flex items-center gap-3 border-b border-border/60 px-5 py-4">
-            <div className="grid h-10 w-10 place-items-center rounded-lg bg-accent-cyan/15 text-accent-cyan">
-              <ClipboardList className="h-5 w-5" />
+          <div className="flex items-center gap-3 border-b border-border/60 px-6 py-5">
+            <div className="grid h-12 w-12 place-items-center rounded-lg bg-accent-cyan/15 text-accent-cyan">
+              <ClipboardList className="h-6 w-6" />
             </div>
             <div>
-              <Dialog.Title className="text-lg font-semibold text-fg">{current.title}</Dialog.Title>
+              <Dialog.Title className="text-xl font-semibold text-fg">{current.title}</Dialog.Title>
               {current.description ? (
                 <Dialog.Description className="mt-0.5 text-sm text-fg-subtle">{current.description}</Dialog.Description>
               ) : null}
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            <p className="mb-4 text-sm text-fg-subtle">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            <p className="mb-5 text-[15px] text-fg-subtle">
               {blocking ? t.surveyRequiredHint : t.surveyOptionalHint}
             </p>
-            <div className="space-y-5">
+            <div className="space-y-6">
               {current.questions.map((q) => (
                 <QuestionBlock
                   key={q.id}
@@ -105,7 +105,7 @@ export function SurveyGate() {
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-border/60 px-5 py-4">
+          <div className="flex justify-end gap-2 border-t border-border/60 px-6 py-4">
             {!blocking ? (
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 {t.teamCancelEdit}
@@ -138,7 +138,7 @@ function QuestionBlock({
       </Label>
       {question.type === 'TEXT' ? (
         <textarea
-          className="min-h-[5rem] w-full rounded-md border border-border/80 bg-bg-deep px-3 py-2 text-[15px] text-fg"
+          className="min-h-[7.5rem] w-full rounded-md border border-border/80 bg-bg-deep px-3 py-2.5 text-[15px] text-fg"
           value={value.text}
           onChange={(e) => onChange({ ...value, text: e.target.value })}
         />
@@ -149,7 +149,7 @@ function QuestionBlock({
             return (
               <label
                 key={opt.id}
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-border/50 bg-white/[0.02] px-3 py-2 text-[15px] hover:bg-accent-cyan/[0.06]"
+                className="flex cursor-pointer items-center gap-3 rounded-lg border border-border/50 bg-white/[0.02] px-4 py-3 text-[15px] hover:bg-accent-cyan/[0.06]"
               >
                 <input
                   type={question.type === 'MULTI' ? 'checkbox' : 'radio'}
